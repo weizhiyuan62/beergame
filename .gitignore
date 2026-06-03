@@ -1,42 +1,27 @@
-# macOS
 .DS_Store
-
-# Editor and IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# Python cache
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .ipynb_checkpoints/
-
-# Virtual environments
 .venv/
 venv/
 env/
 *.egg-info/
-
-# Node.js dependencies and build output
 node_modules/
 dist/
 build/
-
-# Logs
 *.log
-
-# Experiment outputs
 models/
 figures/
 *.pt
 *.pth
 *.ckpt
-
-# LaTeX build artifacts
 *.aux
 *.bbl
 *.bcf
@@ -53,5 +38,5 @@ figures/
 *.toc
 *.vrb
 
-# Keep generated PDFs optional: uncomment if the team decides not to track PDFs.
-# *.pdf
+**tmp**
+outputs**
