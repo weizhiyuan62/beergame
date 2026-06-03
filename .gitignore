@@ -13,6 +13,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.ipynb_checkpoints/
 
 # Virtual environments
 .venv/
@@ -26,6 +27,13 @@ build/
 
 # Logs
 *.log
+
+# Experiment outputs
+models/
+figures/
+*.pt
+*.pth
+*.ckpt
 
 # LaTeX build artifacts
 *.aux
