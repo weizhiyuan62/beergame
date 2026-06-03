@@ -1,1 +1,0 @@
-"""Environment scenario variants."""
