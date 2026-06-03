@@ -1,23 +1,24 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "beergame"
-version = "0.0.0"
+version = "0.0"
 dependencies = [
     "numpy",
     "matplotlib",
     "torch",
     "hydra-core", 
     "scipy",
-    "tqdm"
+    "tqdm",
+    "pygments>=2.4.0",
+    "exceptiongroup"
+
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest",
-]
+[tool.setuptools]
+package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
