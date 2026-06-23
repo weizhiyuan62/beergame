@@ -237,10 +237,32 @@ class DQNAgent:
             return True
         return False
 
-def train_dqn(env, agent, num_episodes=1000, max_t=100, eps_start=1.0, eps_end=0.01, eps_decay=0.995):
+def _opponent_action(policy, state, env, firm_id):
+    """Call a non-learning firm's policy with backward-compatible arguments."""
+    try:
+        return policy.act(state, env=env, firm_id=firm_id)
+    except TypeError:
+        try:
+            return policy.act(state)
+        except TypeError:
+            return policy.act()
+
+
+def train_dqn(
+    env,
+    agent,
+    num_episodes=1000,
+    max_t=100,
+    eps_start=1.0,
+    eps_end=0.01,
+    eps_decay=0.995,
+    opponent_policies=None,
+    checkpoint_prefix=None,
+    final_model_path=None,
+):
     """
     训练DQN智能体
-    
+
     :param env: 环境
     :param agent: DQN智能体
     :param num_episodes: 训练的episodes数量
@@ -248,6 +270,9 @@ def train_dqn(env, agent, num_episodes=1000, max_t=100, eps_start=1.0, eps_end=0
     :param eps_start: 起始epsilon值
     :param eps_end: 最小epsilon值
     :param eps_decay: epsilon衰减率
+    :param opponent_policies: 其他企业的策略字典，键为firm_id，值为带act方法的策略对象
+    :param checkpoint_prefix: 每500个episode保存模型时使用的路径前缀
+    :param final_model_path: 训练结束后保存最终模型的路径
     :return: 所有episode的奖励
     """
     scores = []  # 每个episode的总奖励
@@ -267,8 +292,14 @@ def train_dqn(env, agent, num_episodes=1000, max_t=100, eps_start=1.0, eps_end=0
                     action = agent.act(firm_state, eps)
                     actions[firm_id] = action
                 else:
-                    # 对其他企业采取随机策略
-                    actions[firm_id] = np.random.randint(1, 21)
+                    # 对其他企业采取给定策略，默认保持随机策略
+                    firm_state = state[firm_id].reshape(1, -1)
+                    if opponent_policies and firm_id in opponent_policies:
+                        actions[firm_id] = _opponent_action(
+                            opponent_policies[firm_id], firm_state, env, firm_id
+                        )
+                    else:
+                        actions[firm_id] = np.random.randint(1, 21)
             
             # 执行动作
             next_state, rewards, done = env.step(actions)
@@ -298,20 +329,27 @@ def train_dqn(env, agent, num_episodes=1000, max_t=100, eps_start=1.0, eps_end=0
         
         # 每隔一定episode保存模型
         if i_episode % 500 == 0:
-            agent.save(f'models/dqn_agent_firm_{agent.firm_id}_episode_{i_episode}.pth')
-    
+            if checkpoint_prefix is None:
+                agent.save(f'models/dqn_agent_firm_{agent.firm_id}_episode_{i_episode}.pth')
+            else:
+                agent.save(f'{checkpoint_prefix}_episode_{i_episode}.pth')
+
     # 训练结束后保存最终模型
-    agent.save(f'models/dqn_agent_firm_{agent.firm_id}_final.pth')
+    if final_model_path is None:
+        agent.save(f'models/dqn_agent_firm_{agent.firm_id}_final.pth')
+    else:
+        agent.save(final_model_path)
     
     return scores
 
-def test_agent(env, agent, num_episodes=10):
+def test_agent(env, agent, num_episodes=10, opponent_policies=None):
     """
     测试训练好的DQN智能体
-    
+
     :param env: 环境
     :param agent: 训练好的DQN智能体
     :param num_episodes: 测试的episodes数量
+    :param opponent_policies: 其他企业的策略字典，键为firm_id，值为带act方法的策略对象
     :return: 所有episode的奖励和详细信息
     """
     scores = []
@@ -338,8 +376,14 @@ def test_agent(env, agent, num_episodes=10):
                     action = agent.act(firm_state, epsilon=0.0)
                     actions[firm_id] = action
                 else:
-                    # 对其他企业采取随机策略
-                    actions[firm_id] = np.random.randint(1, 21)
+                    # 对其他企业采取给定策略，默认保持随机策略
+                    firm_state = state[firm_id].reshape(1, -1)
+                    if opponent_policies and firm_id in opponent_policies:
+                        actions[firm_id] = _opponent_action(
+                            opponent_policies[firm_id], firm_state, env, firm_id
+                        )
+                    else:
+                        actions[firm_id] = np.random.randint(1, 21)
             
             # 执行动作
             next_state, rewards, done = env.step(actions)
@@ -371,12 +415,14 @@ def test_agent(env, agent, num_episodes=10):
     
     return scores, inventory_history, orders_history, demand_history, satisfied_demand_history
 
-def plot_training_results(scores, window_size=100):
+def plot_training_results(scores, window_size=100, save_path='figures/training_rewards.png', title='DQN Training Rewards'):
     """
     绘制训练结果
-    
+
     :param scores: 每个episode的奖励
     :param window_size: 移动平均窗口大小
+    :param save_path: 图表保存路径
+    :param title: 图表标题
     """
     # 计算移动平均
     def moving_average(data, window_size):
@@ -385,24 +431,35 @@ def plot_training_results(scores, window_size=100):
     avg_scores = moving_average(scores, window_size)
     
     plt.figure(figsize=(10, 6))
-    plt.plot(np.arange(len(scores)), scores, alpha=0.3, label='原始奖励')
-    plt.plot(np.arange(len(avg_scores)), avg_scores, label=f'{window_size}个episode的移动平均')
-    plt.title('DQN训练过程中的奖励')
+    plt.plot(np.arange(len(scores)), scores, alpha=0.3, label='Raw reward')
+    plt.plot(np.arange(len(avg_scores)), avg_scores, label=f'{window_size}-episode moving average')
+    plt.title(title)
     plt.xlabel('Episode')
-    plt.ylabel('奖励')
+    plt.ylabel('Reward')
     plt.legend()
-    plt.savefig('figures/training_rewards.png')
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path)
     plt.close()
 
-def plot_test_results(scores, inventory_history, orders_history, demand_history, satisfied_demand_history):
+def plot_test_results(
+    scores,
+    inventory_history,
+    orders_history,
+    demand_history,
+    satisfied_demand_history,
+    save_path='figures/test_results.png',
+    title_prefix='',
+):
     """
     绘制测试结果
-    
+
     :param scores: 每个episode的奖励
     :param inventory_history: 每个episode的库存历史
     :param orders_history: 每个episode的订单历史
     :param demand_history: 每个episode的需求历史
     :param satisfied_demand_history: 每个episode的满足需求历史
+    :param save_path: 图表保存路径
+    :param title_prefix: 子图标题前缀
     """
     # 计算平均值，用于绘图
     avg_inventory = np.mean(inventory_history, axis=0)
@@ -412,35 +469,37 @@ def plot_test_results(scores, inventory_history, orders_history, demand_history,
     
     # 创建图表
     fig, axs = plt.subplots(2, 2, figsize=(14, 10))
-    
+    prefix = f'{title_prefix} ' if title_prefix else ''
+
     # 库存图表
     axs[0, 0].plot(avg_inventory)
-    axs[0, 0].set_title('平均库存')
-    axs[0, 0].set_xlabel('时间步')
-    axs[0, 0].set_ylabel('库存量')
-    
+    axs[0, 0].set_title(f'{prefix}Average Inventory')
+    axs[0, 0].set_xlabel('Time Step')
+    axs[0, 0].set_ylabel('Inventory')
+
     # 订单图表
     axs[0, 1].plot(avg_orders)
-    axs[0, 1].set_title('平均订单量')
-    axs[0, 1].set_xlabel('时间步')
-    axs[0, 1].set_ylabel('订单量')
-    
+    axs[0, 1].set_title(f'{prefix}Average Order Quantity')
+    axs[0, 1].set_xlabel('Time Step')
+    axs[0, 1].set_ylabel('Order Quantity')
+
     # 需求和满足需求图表
-    axs[1, 0].plot(avg_demand, label='需求')
-    axs[1, 0].plot(avg_satisfied_demand, label='满足的需求')
-    axs[1, 0].set_title('平均需求 vs 满足的需求')
-    axs[1, 0].set_xlabel('时间步')
-    axs[1, 0].set_ylabel('数量')
+    axs[1, 0].plot(avg_demand, label='Demand')
+    axs[1, 0].plot(avg_satisfied_demand, label='Satisfied Demand')
+    axs[1, 0].set_title(f'{prefix}Demand vs Satisfied Demand')
+    axs[1, 0].set_xlabel('Time Step')
+    axs[1, 0].set_ylabel('Quantity')
     axs[1, 0].legend()
-    
+
     # 奖励柱状图
     axs[1, 1].bar(range(len(scores)), scores)
-    axs[1, 1].set_title('测试episode奖励')
+    axs[1, 1].set_title(f'{prefix}Test Episode Rewards')
     axs[1, 1].set_xlabel('Episode')
-    axs[1, 1].set_ylabel('总奖励')
+    axs[1, 1].set_ylabel('Total Reward')
     
     plt.tight_layout()
-    plt.savefig('figures/test_results.png')
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path)
     plt.close()
 
 
