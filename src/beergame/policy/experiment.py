@@ -9,7 +9,7 @@ import torch
 
 from beergame.policy.dqn import DQNAgent, plot_test_results, plot_training_results, test_agent, train_dqn
 from beergame.policy.heuristic import BaseStockPolicy
-from beergame.policy.improved import DoubleDQNAgent
+from beergame.policy.double_dqn import DoubleDQNAgent
 from beergame.sim.env import Env
 
 
