@@ -1,0 +1,261 @@
+\documentclass[nohyperref]{article}
+
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{subfigure}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{amsthm}
+\usepackage[UTF8]{ctex}
+\usepackage{hyperref}
+\usepackage[capitalize,noabbrev]{cleveref}
+\usepackage{icml2022}
+
+\providecommand{\theHalgorithm}{\arabic{algorithm}}
+\icmltitlerunning{基于 Double DQN 的啤酒游戏订货策略优化}
+
+\begin{document}
+
+\twocolumn[
+\icmltitle{基于 Double DQN 的啤酒游戏订货策略优化}
+
+\begin{icmlauthorlist}
+\icmlauthor{课程项目小组}{pku}
+\end{icmlauthorlist}
+
+\icmlaffiliation{pku}{北京大学，供应链管理课程项目}
+\icmlkeywords{Beer Game, Supply Chain, Deep Reinforcement Learning, DQN, Double DQN}
+
+\vskip 0.3in
+]
+
+\printAffiliationsAndNotice{}
+
+\begin{abstract}
+本文围绕啤酒游戏（Beer Game）中的串行供应链订货决策问题，研究如何使用深度强化学习方法优化单个企业的长期利润。我们首先复现了基于 Deep Q-Network（DQN）的单智能体基线方法，将三阶段供应链中的第 2 个企业作为学习智能体，其余企业作为环境的一部分。随后，针对标准 DQN 容易产生 Q 值过估计的问题，引入 Double DQN 作为算法改进，并使用基础库存（base-stock）启发式策略控制非学习企业，从而形成更稳定的实验环境。实验结果显示，在相同训练轮数和测试设置下，Double DQN 的平均测试收益由 357.30 提升到 455.65，需求满足率由 0.772 提升到 0.817，说明改进算法在本实验设置下获得了更好的订货策略。
+\end{abstract}
+
+\section{引言}
+
+啤酒游戏是供应链管理教学和研究中常用的动态决策问题。多个企业按串行结构组成供应链，下游企业面对外部需求，上游企业根据下游订单安排补货。由于订单传递、库存约束和需求随机性的共同作用，局部最优的订货行为可能导致库存积压、缺货损失以及供应链波动放大等现象。
+
+本项目的目标是在给定 Beer Game 仿真环境中，选择一个企业作为研究对象，通过调节其订货数量来优化利润。按照课程要求，我们首先复现单智能体 DQN baseline，并进一步提出一个算法层面的改进：使用 Double DQN 替代标准 DQN 的目标值估计方式。相比直接取目标网络的最大 Q 值，Double DQN 将动作选择和动作评估拆分到在线网络与目标网络中，有助于缓解过估计问题。
+
+本文的主要工作包括：第一，基于课程环境实现三企业串行供应链建模；第二，复现 DQN 训练、测试、模型保存和可视化流程；第三，实现 Double DQN 并与 DQN 在相同环境下进行比较；第四，引入 base-stock 启发式策略作为非学习企业的订货规则，使实验结果更易复现和分析。
+
+\section{问题建模}
+
+\subsection{供应链环境}
+
+实验环境包含 $N=3$ 个企业。企业按照串行结构连接，下游企业面对外部市场需求，其他企业面对其下游企业的订单需求。在代码实现中，企业索引为 $0,1,2$，其中企业 $0$ 是最下游零售商，企业 $1$ 是本文训练的学习对象，企业 $2$ 是上游企业。
+
+每个 episode 最多运行 100 个时间步。外部市场需求服从泊松分布：
+\begin{equation}
+D_t \sim \operatorname{Poisson}(\lambda), \quad \lambda=10.
+\end{equation}
+每个企业在时间步 $t$ 选择订货动作 $q_{i,t}$，动作空间为离散整数 $\{1,2,\ldots,20\}$。
+
+\subsection{状态与转移}
+
+每个企业的局部观察由三部分组成：订单量、满足需求量和库存水平：
+\begin{equation}
+s_{i,t} = [q_{i,t}, d_{i,t}, I_{i,t}],
+\end{equation}
+其中 $q_{i,t}$ 表示企业 $i$ 的订货量，$d_{i,t}$ 表示实际满足的需求量，$I_{i,t}$ 表示当前库存。
+
+库存转移遵循：
+\begin{equation}
+I_{i,t+1} = I_{i,t} + q_{i,t} - d_{i,t}.
+\end{equation}
+对于最下游企业，其需求来自外部市场；对于其他企业，其需求等于下游企业的订货量。环境在每个时间步根据库存约束计算可满足需求，并同步更新库存。
+
+\subsection{奖励函数}
+
+企业 $i$ 的即时奖励由销售收入、向上游采购成本、库存持有成本和缺货损失构成：
+\begin{equation}
+r_{i,t}=p_i d_{i,t}-p_{i+1}q_{i,t}-hI_{i,t}-c\max(0,D_{i,t}-d_{i,t}),
+\end{equation}
+其中 $p_i$ 为企业 $i$ 的售价，$h=0.5$ 为库存持有成本，$c=2$ 为缺货损失系数。实验中价格设置为 $[10,9,8]$，初始库存为 100。训练目标是最大化学习企业在整个 episode 中的累计收益。
+
+\section{方法}
+
+\subsection{DQN 基线方法}
+
+DQN 使用神经网络近似动作价值函数 $Q(s,a)$。本文中的 Q 网络为三层全连接网络：输入维度为 3，对应企业局部状态；两个隐藏层均包含 64 个神经元；输出维度为 20，对应 20 个离散订货动作。
+
+训练过程中，智能体使用 $\epsilon$-greedy 策略进行探索。初始 $\epsilon=1.0$，每个 episode 后按 0.995 衰减，最低降至 0.01。经验样本存入 replay buffer，并以 batch size 64 进行随机采样训练。标准 DQN 的目标值为：
+\begin{equation}
+y = r + \gamma \max_{a'} Q_{\text{target}}(s',a'),
+\end{equation}
+其中折扣因子 $\gamma=0.99$。目标网络通过软更新与在线网络保持接近，软更新系数为 $\tau=10^{-3}$。
+
+\subsection{Double DQN 改进}
+
+标准 DQN 使用同一个目标网络完成下一个状态的动作选择和价值评估，容易引入最大化偏差。Double DQN 的核心思想是将这两个步骤解耦：先用在线网络选择下一个动作，再用目标网络评估该动作价值：
+\begin{equation}
+a^* = \arg\max_{a'} Q_{\text{online}}(s',a'),
+\end{equation}
+\begin{equation}
+y = r + \gamma Q_{\text{target}}(s',a^*).
+\end{equation}
+
+在实现上，Double DQN 复用了 baseline 中的网络结构、经验回放、动作选择、模型保存和软更新机制，仅重写学习步骤中的目标值计算。这种设计使对比实验更加公平，因为 DQN 与 Double DQN 的主要差异集中在算法更新公式上。
+
+\subsection{非学习企业策略}
+
+课程要求中允许其余智能体采用管理学中的供应链策略或随机策略。为了减少纯随机对手带来的额外方差，本文在主要对比实验中为非学习企业设置 base-stock 策略。该策略根据当前库存与目标库存的差距决定订货量：
+\begin{equation}
+q_{i,t}=\operatorname{clip}(I^{\text{target}}-I_{i,t},1,20),
+\end{equation}
+其中目标库存设为 100。该策略简单、可解释，并能提供较稳定的供应链背景。
+
+\section{实验设置}
+
+实验在 Python 3.10.16 的 \texttt{beergame} conda 环境中运行。核心依赖包括 NumPy、PyTorch 和 Matplotlib。主要运行命令为：
+\begin{verbatim}
+conda activate beergame
+python -m beergame.policy.experiment
+\end{verbatim}
+
+每个算法训练 500 个 episodes，每个 episode 最多 100 步。训练结束后，在 10 个测试 episodes 上评估最终策略。所有实验均训练企业 $1$，企业 $0$ 和企业 $2$ 使用 base-stock 策略。实验脚本会保存最终模型、训练曲线、测试过程图以及算法对比图。
+
+\begin{table}[t]
+\caption{主要实验参数}
+\label{tab:params}
+\vskip 0.15in
+\begin{center}
+\begin{small}
+\begin{tabular}{lc}
+\toprule
+参数 & 数值 \\
+\midrule
+企业数量 & 3 \\
+学习企业 & 1 \\
+动作空间 & $\{1,\ldots,20\}$ \\
+初始库存 & 100 \\
+泊松需求均值 & 10 \\
+训练 episodes & 500 \\
+测试 episodes & 10 \\
+折扣因子 $\gamma$ & 0.99 \\
+Replay buffer & 10000 \\
+Batch size & 64 \\
+学习率 & $10^{-3}$ \\
+\bottomrule
+\end{tabular}
+\end{small}
+\end{center}
+\vskip -0.1in
+\end{table}
+
+\section{实验结果}
+
+\subsection{训练曲线}
+
+\cref{fig:training} 展示了 DQN 与 Double DQN 的训练奖励移动平均曲线。两个算法在训练前期均经历较低收益，这是由于探索率较高，智能体尚未学到稳定的订货策略。随着 episode 增加，探索率逐渐下降，策略收益开始提升。相比 baseline DQN，Double DQN 在后期达到更高的移动平均收益，说明其目标值估计方式在该环境中更有利于稳定学习。
+
+\begin{figure}[t]
+\vskip 0.1in
+\begin{center}
+\includegraphics[width=\columnwidth]{comparison_training_curve.png}
+\caption{DQN 与 Double DQN 的训练奖励移动平均对比。}
+\label{fig:training}
+\end{center}
+\vskip -0.15in
+\end{figure}
+
+\subsection{测试收益对比}
+
+\cref{tab:results} 给出了 10 个测试 episodes 上的汇总指标。Double DQN 的平均测试收益为 455.65，高于 DQN 的 357.30；同时其收益标准差为 42.00，低于 DQN 的 51.52。这表明 Double DQN 不仅提升了平均表现，也在一定程度上降低了测试结果波动。
+
+\begin{table}[t]
+\caption{DQN 与 Double DQN 的测试结果比较}
+\label{tab:results}
+\vskip 0.15in
+\begin{center}
+\begin{small}
+\begin{tabular}{lcc}
+\toprule
+指标 & DQN & Double DQN \\
+\midrule
+平均测试收益 & 357.30 & \textbf{455.65} \\
+收益标准差 & 51.52 & \textbf{42.00} \\
+平均库存 & 13.77 & 14.29 \\
+平均订货量 & 6.71 & 7.18 \\
+需求满足率 & 0.772 & \textbf{0.817} \\
+\bottomrule
+\end{tabular}
+\end{small}
+\end{center}
+\vskip -0.1in
+\end{table}
+
+\begin{figure}[t]
+\vskip 0.1in
+\begin{center}
+\includegraphics[width=\columnwidth]{comparison_test_scores.png}
+\caption{DQN 与 Double DQN 的平均测试收益对比，误差线表示测试收益标准差。}
+\label{fig:test-score}
+\end{center}
+\vskip -0.15in
+\end{figure}
+
+\subsection{订货行为与库存变化}
+
+\cref{fig:dqn-detail} 和 \cref{fig:double-detail} 展示了两个算法在测试阶段的平均库存、平均订货量、需求满足情况和每个测试 episode 的累计收益。可以看到，Double DQN 的平均订货量略高，库存水平也略高，这使其在需求到来时更容易满足订单，最终体现为更高的需求满足率和收益。与此同时，库存成本并未显著抵消收益提升，说明该策略在缺货损失和库存持有成本之间取得了更好的平衡。
+
+\begin{figure}[t]
+\vskip 0.1in
+\begin{center}
+\includegraphics[width=\columnwidth]{baseline_dqn_test_results.png}
+\caption{Baseline DQN 在测试阶段的库存、订货量、需求满足和收益表现。}
+\label{fig:dqn-detail}
+\end{center}
+\vskip -0.15in
+\end{figure}
+
+\begin{figure}[t]
+\vskip 0.1in
+\begin{center}
+\includegraphics[width=\columnwidth]{double_dqn_test_results.png}
+\caption{Double DQN 在测试阶段的库存、订货量、需求满足和收益表现。}
+\label{fig:double-detail}
+\end{center}
+\vskip -0.15in
+\end{figure}
+
+\section{分析与讨论}
+
+实验结果表明，在本文设置下，Double DQN 相比标准 DQN 取得了更好的平均收益和需求满足率。一个可能原因是标准 DQN 的最大化目标容易高估部分动作价值，导致学习过程偏向某些并不稳定的订货动作；Double DQN 将动作选择与动作评估分离后，目标值更加保守，从而使策略更新更稳定。
+
+从供应链角度看，学习企业需要在库存成本和缺货损失之间权衡。订货过少会导致无法满足下游需求，产生缺货损失；订货过多则会增加库存持有成本。Double DQN 学到的策略平均订货量和库存略高于 DQN，因此在需求满足方面表现更好，并带来了更高收益。这说明在当前参数下，适度提高库存缓冲比过度压低库存更有利。
+
+本文实验也存在一些局限。首先，训练只使用了固定环境参数和单个主要随机种子，结果仍可能受到随机性的影响。其次，非学习企业采用固定 base-stock 策略，尚未考虑多个企业同时学习时的策略耦合。最后，动作空间仍为一维离散订货量，没有研究连续动作或更复杂的供应链结构。
+
+\section{复现方式与交付文件}
+
+代码采用 \texttt{src/} package layout。环境配置与运行方式如下：
+\begin{verbatim}
+conda create -n beergame python=3.10.16 -y
+conda activate beergame
+pip install -e .
+python -m beergame.policy.experiment
+\end{verbatim}
+
+实验运行后会生成以下主要文件：
+\begin{itemize}
+    \item \texttt{models/baseline\_dqn\_firm\_1\_final.pth}
+    \item \texttt{models/double\_dqn\_firm\_1\_final.pth}
+    \item \texttt{figures/comparison\_training\_curve.png}
+    \item \texttt{figures/comparison\_test\_scores.png}
+    \item \texttt{figures/baseline\_dqn\_test\_results.png}
+    \item \texttt{figures/double\_dqn\_test\_results.png}
+\end{itemize}
+这些模型和图片可用于最终压缩包提交及 demo 展示。
+
+\section{结论}
+
+本文完成了 Beer Game 环境下的单智能体 DQN baseline 复现，并实现了 Double DQN 作为算法改进。实验结果显示，在相同训练与测试设置下，Double DQN 相比标准 DQN 获得更高的平均测试收益、更低的收益波动和更高的需求满足率。后续工作可以从多随机种子实验、多智能体强化学习、需求分布变化以及 bullwhip effect 分析等方向继续扩展。
+
+\end{document}

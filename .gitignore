@@ -37,6 +37,8 @@ figures/
 *.synctex.gz
 *.toc
 *.vrb
+.claude
+CLAUDE.md
 
 **tmp**
 outputs**
