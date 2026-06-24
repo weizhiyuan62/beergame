@@ -111,6 +111,24 @@ q_{i,t}=\operatorname{clip}(I^{\text{target}}-I_{i,t},1,20),
 \end{equation}
 其中目标库存设为 100。该策略简单、可解释，并能提供较稳定的供应链背景。
 
+\subsection{高维订单空间扩展}
+
+在原始 Beer Game 环境中，学习企业每个时间步只选择一个标量订货量 $q_{i,t}$。为了研究更复杂的订货决策，本文进一步将动作空间扩展为 $K$ 维订单向量：
+\begin{equation}
+a_{i,t} = (q_{i,t}^{(1)}, q_{i,t}^{(2)}, \ldots, q_{i,t}^{(K)}).
+\end{equation}
+其中每一维可以理解为一种订货渠道、运输方式或供应商。环境使用各维订单量之和作为实际补货量：
+\begin{equation}
+q_{i,t}^{\text{total}} = \sum_{k=1}^{K} q_{i,t}^{(k)}.
+\end{equation}
+同时，不同订单维度设置不同采购成本系数 $\alpha_k$，因此学习企业的采购成本写为：
+\begin{equation}
+C_{i,t}=p_{i+1}\sum_{k=1}^{K}\alpha_k q_{i,t}^{(k)}.
+\end{equation}
+当 $K=1$ 时，该设定退化为原始一维订货动作；当 $K>1$ 时，智能体不仅需要决定总订货量，还需要决定订单在不同渠道之间的分配方式。
+
+由于 DQN 处理离散动作，本文将高维订单向量枚举为组合动作。为避免动作空间包含完全不订货或过度订货等极端组合，我们约束组合动作满足 $5 \leq \sum_k q_{i,t}^{(k)} \leq 20$，使其总订货范围与原始实验保持可比。
+
 \section{实验设置}
 
 实验在 Python 3.10.16 的 \texttt{beergame} conda 环境中运行。核心依赖包括 NumPy、PyTorch 和 Matplotlib。主要运行命令为：
@@ -120,6 +138,11 @@ python -m beergame.policy.experiment
 \end{verbatim}
 
 每个算法训练 500 个 episodes，每个 episode 最多 100 步。训练结束后，在 10 个测试 episodes 上评估最终策略。所有实验均训练企业 $1$，企业 $0$ 和企业 $2$ 使用 base-stock 策略。实验脚本会保存最终模型、训练曲线、测试过程图以及算法对比图。
+
+在高维订单空间实验中，本文设置 $K=3$，每个维度的可选订单量为 $\{0,5,10,15,20\}$，成本系数为 $[1.0,1.1,1.25]$。组合动作经过总订货量约束 $5 \leq q_{i,t}^{\text{total}} \leq 20$ 后，动作数量为 34。高维实验训练 1000 个 episodes，其余网络结构、折扣因子、经验回放和测试 episodes 数保持不变。运行命令为：
+\begin{verbatim}
+python -m beergame.policy.high_dim_experiment
+\end{verbatim}
 
 \begin{table}[t]
 \caption{主要实验参数}
@@ -225,13 +248,77 @@ Batch size & 64 \\
 \vskip -0.15in
 \end{figure}
 
+\subsection{高维订单空间实验}
+
+在高维订单空间中，动作不再是单一订货量，而是三维订单向量。该设定提高了策略表达能力，使智能体能够学习订单在不同渠道之间的分配方式；同时，组合动作空间也更复杂，要求算法具有更稳定的价值估计能力。
+
+\cref{fig:high-dim-training} 展示了高维动作空间下 DQN 和 Double DQN 的训练曲线。由于动作空间从原始的一维离散动作扩展为 34 个组合动作，训练初期的探索难度有所增加。经过 1000 个 episodes 后，Double DQN 相比标准 DQN 表现出更稳定的收益提升趋势。
+
+\begin{figure}[t]
+\vskip 0.1in
+\begin{center}
+\includegraphics[width=\columnwidth]{high_dim_comparison_training_curve.png}
+\caption{高维订单空间下 DQN 与 Double DQN 的训练收益对比。}
+\label{fig:high-dim-training}
+\end{center}
+\vskip -0.15in
+\end{figure}
+
+\cref{tab:high-dim-results} 给出了高维实验在 10 个测试 episodes 上的结果。标准 DQN 的平均测试收益为 214.10，需求满足率为 0.819；Double DQN 的平均测试收益提升至 320.55，需求满足率提升至 0.926，同时收益标准差由 98.45 降低至 72.32。这说明在更复杂的高维动作空间中，Double DQN 仍然能够获得更稳定和更高质量的订货策略。
+
+\begin{table}[t]
+\caption{高维订单空间下 DQN 与 Double DQN 的测试结果比较}
+\label{tab:high-dim-results}
+\vskip 0.15in
+\begin{center}
+\begin{small}
+\begin{tabular}{lcc}
+\toprule
+指标 & HD-DQN & HD-Double DQN \\
+\midrule
+平均测试收益 & 214.10 & \textbf{320.55} \\
+收益标准差 & 98.45 & \textbf{72.32} \\
+平均库存 & 19.15 & 22.54 \\
+平均订货量 & 7.19 & 8.38 \\
+需求满足率 & 0.819 & \textbf{0.926} \\
+\bottomrule
+\end{tabular}
+\end{small}
+\end{center}
+\vskip -0.1in
+\end{table}
+
+\begin{figure}[t]
+\vskip 0.1in
+\begin{center}
+\includegraphics[width=\columnwidth]{high_dim_comparison_test_scores.png}
+\caption{高维订单空间下 DQN 与 Double DQN 的平均测试收益对比。}
+\label{fig:high-dim-test-score}
+\end{center}
+\vskip -0.15in
+\end{figure}
+
+\cref{fig:high-dim-double-detail} 展示了高维 Double DQN 在测试阶段的订货、库存和需求满足情况。相比高维 DQN，Double DQN 采取了略高的平均订货量和库存缓冲，从而显著提高需求满足率。该结果与原始一维动作空间实验中的趋势一致，即 Double DQN 通过降低目标值过估计带来的不稳定性，在供应链订货任务中取得更稳健的策略。
+
+\begin{figure}[t]
+\vskip 0.1in
+\begin{center}
+\includegraphics[width=\columnwidth]{high_dim_double_dqn_test_results.png}
+\caption{高维 Double DQN 在测试阶段的库存、订货量、需求满足和收益表现。}
+\label{fig:high-dim-double-detail}
+\end{center}
+\vskip -0.15in
+\end{figure}
+
 \section{分析与讨论}
 
 实验结果表明，在本文设置下，Double DQN 相比标准 DQN 取得了更好的平均收益和需求满足率。一个可能原因是标准 DQN 的最大化目标容易高估部分动作价值，导致学习过程偏向某些并不稳定的订货动作；Double DQN 将动作选择与动作评估分离后，目标值更加保守，从而使策略更新更稳定。
 
 从供应链角度看，学习企业需要在库存成本和缺货损失之间权衡。订货过少会导致无法满足下游需求，产生缺货损失；订货过多则会增加库存持有成本。Double DQN 学到的策略平均订货量和库存略高于 DQN，因此在需求满足方面表现更好，并带来了更高收益。这说明在当前参数下，适度提高库存缓冲比过度压低库存更有利。
 
-本文实验也存在一些局限。首先，训练只使用了固定环境参数和单个主要随机种子，结果仍可能受到随机性的影响。其次，非学习企业采用固定 base-stock 策略，尚未考虑多个企业同时学习时的策略耦合。最后，动作空间仍为一维离散订货量，没有研究连续动作或更复杂的供应链结构。
+高维订单空间实验进一步表明，扩展动作空间可以增强模型对多渠道订货决策的刻画能力，但也会带来动作组合数量增加和探索难度上升的问题。直接枚举所有高维组合会产生大量过低或过高的无效订货动作，因此本文通过总订货量约束将动作空间控制在合理范围内。实验结果显示，在该复杂设定下，Double DQN 相比 DQN 仍然能够获得更高收益和更高需求满足率，说明其目标值估计方式对复杂动作空间具有更好的适应性。
+
+本文实验也存在一些局限。首先，训练只使用了固定环境参数和单个主要随机种子，结果仍可能受到随机性的影响。其次，非学习企业采用固定 base-stock 策略，尚未考虑多个企业同时学习时的策略耦合。
 
 \section{复现方式与交付文件}
 
@@ -241,21 +328,26 @@ conda create -n beergame python=3.10.16 -y
 conda activate beergame
 pip install -e .
 python -m beergame.policy.experiment
+python -m beergame.policy.high_dim_experiment
 \end{verbatim}
 
 实验运行后会生成以下主要文件：
 \begin{itemize}
-    \item \texttt{models/baseline\_dqn\_firm\_1\_final.pth}
-    \item \texttt{models/double\_dqn\_firm\_1\_final.pth}
-    \item \texttt{figures/comparison\_training\_curve.png}
-    \item \texttt{figures/comparison\_test\_scores.png}
-    \item \texttt{figures/baseline\_dqn\_test\_results.png}
-    \item \texttt{figures/double\_dqn\_test\_results.png}
+    \item \path{models/baseline_dqn_firm_1_final.pth}
+    \item \path{models/double_dqn_firm_1_final.pth}
+    \item \path{models/high_dim_dqn_firm_1_final.pth}
+    \item \path{models/high_dim_double_dqn_firm_1_final.pth}
+    \item \path{figures/comparison_training_curve.png}
+    \item \path{figures/comparison_test_scores.png}
+    \item \path{figures/baseline_dqn_test_results.png}
+    \item \path{figures/double_dqn_test_results.png}
+    \item \path{figures/high_dim_comparison_training_curve.png}
+    \item \path{figures/high_dim_comparison_test_scores.png}
+    \item \path{figures/high_dim_double_dqn_test_results.png}
 \end{itemize}
-这些模型和图片可用于最终压缩包提交及 demo 展示。
 
 \section{结论}
 
-本文完成了 Beer Game 环境下的单智能体 DQN baseline 复现，并实现了 Double DQN 作为算法改进。实验结果显示，在相同训练与测试设置下，Double DQN 相比标准 DQN 获得更高的平均测试收益、更低的收益波动和更高的需求满足率。后续工作可以从多随机种子实验、多智能体强化学习、需求分布变化以及 bullwhip effect 分析等方向继续扩展。
+本文完成了 Beer Game 环境下的单智能体 DQN baseline 复现，并实现了 Double DQN 作为算法改进。实验结果显示，在相同训练与测试设置下，Double DQN 相比标准 DQN 获得更高的平均测试收益、更低的收益波动和更高的需求满足率。进一步地，本文将一维订货动作扩展为带总量约束的高维订单向量，用于刻画多渠道订货决策。高维实验结果同样显示，Double DQN 在复杂动作空间下优于标准 DQN，平均测试收益由 214.10 提升至 320.55，需求满足率由 0.819 提升至 0.926。后续工作可以从多随机种子实验、多智能体强化学习、不同渠道到货延迟、需求分布变化以及 bullwhip effect 分析等方向继续扩展。
 
 \end{document}
