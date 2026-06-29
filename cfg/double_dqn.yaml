@@ -1,0 +1,28 @@
+training:
+  name: double_dqn
+  algorithm: double_dqn
+  result_root: results
+  firm_id: 1
+  action_size: 20
+  num_episodes: 1000
+  test_episodes: 20
+  seed: 42
+  seed_offset: 100
+  eps_start: 1.0
+  eps_end: 0.01
+  eps_decay: 0.995
+
+dqn:
+  buffer_size: 10000
+  batch_size: 64
+  gamma: 0.99
+  learning_rate: 0.001
+  tau: 0.001
+  update_every: 4
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: .
+  output_subdir: null

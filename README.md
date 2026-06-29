@@ -29,6 +29,8 @@ src/beergame/policy/
 scripts/
   train_*.py         # experiment-specific train/test/result-saving workflows
   plot_results.py    # aggregate plotting from results/
+cfg/
+  *.yaml             # experiment configs used by train scripts
 ```
 
 ### DQN Baseline
@@ -41,6 +43,15 @@ python scripts/train_dqn.py
 ```
 
 This trains firm `1` by default, while the other firms use base-stock orders. It saves raw training and test results under `results/baseline_dqn/`.
+The default scalar-action setting trains DQN-style agents for 1000 episodes and evaluates on 20 test episodes.
+Each training script is managed by Hydra. It loads its matching YAML config by default and supports command-line overrides:
+
+```bash
+python scripts/train_dqn.py training.num_episodes=2000 dqn.learning_rate=0.0005
+python scripts/train_ppo.py ppo.entropy_coef=0.05 training.result_root=results/ppo_entropy
+```
+
+Use `--config-name` if you add another YAML file under `cfg/`.
 
 ### Double DQN
 
@@ -63,6 +74,7 @@ python scripts/train_ppo.py
 ```
 
 This saves raw training and test results under `results/ppo/`.
+PPO uses a longer default horizon of 1500 training episodes, reward scaling for policy updates, and stronger entropy regularization to reduce premature low-order policies.
 
 ### Aggregate Plotting
 
@@ -88,7 +100,7 @@ results/
     training_scores.npy
     test_scores.npy
     test_history.npz
-    summary.json
+    summary.json    # metrics, full Hydra config, runtime, and command
   double_dqn/
   ppo/
   summary/baseline_dqn_double_dqn_ppo/
@@ -113,6 +125,7 @@ This experiment compares:
 - `high_dim_double_dqn`: Double DQN agent for firm `1` with the same action space.
 
 The order action has three dimensions. Each dimension can choose from `[0, 5, 10, 15, 20]`, and only actions with total order quantity between `5` and `20` are used. The non-learning firms use a base-stock heuristic policy.
+The high-dimensional scripts train for 1500 episodes by default and evaluate on 20 test episodes.
 
 To aggregate high-dimensional results, edit `scripts/plot_results.py`:
 

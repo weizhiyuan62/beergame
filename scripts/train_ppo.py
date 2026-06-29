@@ -5,6 +5,7 @@ from pathlib import Path
 import random
 import sys
 
+import hydra
 import numpy as np
 import torch
 
@@ -15,9 +16,7 @@ from train_dqn import (
     ACTION_SIZE,
     ENV_CONFIG,
     FIRM_ID,
-    NUM_EPISODES,
     SEED,
-    TEST_EPISODES,
     make_env,
     make_opponent_policies,
     opponent_action,
@@ -25,6 +24,26 @@ from train_dqn import (
     set_seed,
     summarize_result,
 )
+from train_config import (
+    as_plain_config,
+    default_config_dict,
+    hydra_config_to_dict,
+    runtime_finish,
+    runtime_start,
+)
+
+
+NUM_EPISODES = 1500
+TEST_EPISODES = 20
+REWARD_SCALE = 0.01
+PPO_AGENT_CONFIG = {
+    "learning_rate": 1e-4,
+    "clip_epsilon": 0.15,
+    "update_epochs": 4,
+    "minibatch_size": 64,
+    "entropy_coef": 0.03,
+    "value_coef": 0.5,
+}
 
 
 @dataclass
@@ -45,6 +64,7 @@ def train_ppo_agent(
     opponent_policies=None,
     checkpoint_prefix=None,
     final_model_path=None,
+    reward_scale=REWARD_SCALE,
 ):
     scores = []
 
@@ -76,7 +96,7 @@ def train_ppo_agent(
             rollout_states.append(state[agent.firm_id].reshape(-1))
             rollout_actions.append(int(actions[agent.firm_id][0]) - 1)
             rollout_log_probs.append(log_prob)
-            rollout_rewards.append(reward)
+            rollout_rewards.append(reward * reward_scale)
             rollout_dones.append(float(done))
             rollout_values.append(value)
 
@@ -185,23 +205,46 @@ def run_ppo_experiment(
     seed_offset=200,
     num_episodes=NUM_EPISODES,
     test_episodes=TEST_EPISODES,
+    config=None,
+    runtime=None,
 ):
-    set_seed(SEED + seed_offset)
-    env = make_env()
+    config = config or default_config_dict()
+    training_config = config["training"]
+    ppo_config = dict(config["ppo"])
+    env_config = config["env"]
+    reward_scale = ppo_config.pop("reward_scale", REWARD_SCALE)
+
+    name = training_config.get("name", name)
+    result_root = training_config.get("result_root", result_root)
+    seed_offset = training_config.get("seed_offset", seed_offset)
+    num_episodes = training_config.get("num_episodes", num_episodes)
+    test_episodes = training_config.get("test_episodes", test_episodes)
+    firm_id = training_config.get("firm_id", FIRM_ID)
+    action_size = training_config.get("action_size", ACTION_SIZE)
+    seed = training_config.get("seed", SEED) + seed_offset
+
+    set_seed(seed)
+    env = make_env(env_config)
     opponent_policies = make_opponent_policies()
     result_dir = Path(result_root) / name
     checkpoint_dir = result_dir / "checkpoints"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    agent = PPOAgent(state_size=3, action_size=ACTION_SIZE, firm_id=FIRM_ID)
+    agent = PPOAgent(
+        state_size=3,
+        action_size=action_size,
+        firm_id=firm_id,
+        **ppo_config,
+    )
     training_scores = train_ppo_agent(
         env,
         agent,
         num_episodes=num_episodes,
-        max_t=ENV_CONFIG["max_steps"],
+        max_t=env_config["max_steps"],
         opponent_policies=opponent_policies,
         checkpoint_prefix=str(checkpoint_dir / name),
         final_model_path=str(result_dir / "model.pth"),
+        reward_scale=reward_scale,
     )
     (
         test_scores,
@@ -235,17 +278,21 @@ def run_ppo_experiment(
         satisfied_demand_history,
         summary,
         {
-            "env": ENV_CONFIG,
-            "firm_id": FIRM_ID,
-            "action_size": ACTION_SIZE,
-            "num_episodes": num_episodes,
-            "test_episodes": test_episodes,
-            "seed": SEED + seed_offset,
+            **as_plain_config(config),
+            "effective_seed": seed,
         },
+        runtime=runtime_finish(runtime) if runtime else None,
     )
     return summary
 
 
-if __name__ == "__main__":
-    summary = run_ppo_experiment()
+@hydra.main(version_base=None, config_path="../cfg", config_name="ppo")
+def main(cfg):
+    cfg = hydra_config_to_dict(cfg)
+    runtime = runtime_start()
+    summary = run_ppo_experiment(config=cfg, runtime=runtime)
     print("ppo summary:", summary)
+
+
+if __name__ == "__main__":
+    main()

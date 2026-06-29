@@ -5,6 +5,7 @@ import random
 import sys
 from pathlib import Path
 
+import hydra
 import numpy as np
 import torch
 
@@ -13,6 +14,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from beergame.policy.base_stock import BaseStockPolicy
 from beergame.policy.dqn import DQNAgent
 from beergame.sim.env import Env
+from train_config import (
+    as_plain_config,
+    default_config_dict,
+    hydra_config_to_dict,
+    runtime_finish,
+    runtime_start,
+)
 
 
 ENV_CONFIG = {
@@ -26,9 +34,12 @@ ENV_CONFIG = {
 }
 FIRM_ID = 1
 ACTION_SIZE = 20
-NUM_EPISODES = 500
-TEST_EPISODES = 10
+NUM_EPISODES = 1000
+TEST_EPISODES = 20
 SEED = 42
+EPS_START = 1.0
+EPS_END = 0.01
+EPS_DECAY = 0.995
 
 
 def set_seed(seed):
@@ -37,8 +48,8 @@ def set_seed(seed):
     torch.manual_seed(seed)
 
 
-def make_env():
-    return Env(**ENV_CONFIG)
+def make_env(env_config=None):
+    return Env(**(env_config or ENV_CONFIG))
 
 
 def make_opponent_policies():
@@ -87,6 +98,7 @@ def save_run_result(
     satisfied_demand_history,
     summary,
     config,
+    runtime=None,
 ):
     result_dir = Path(result_dir)
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -106,6 +118,7 @@ def save_run_result(
         "algorithm": algorithm,
         "summary": summary,
         "config": config,
+        "runtime": runtime,
     }
     with open(result_dir / "summary.json", "w", encoding="utf-8") as f:
         json.dump(metadata, f, ensure_ascii=False, indent=2)
@@ -116,9 +129,9 @@ def train_dqn_agent(
     agent,
     num_episodes=NUM_EPISODES,
     max_t=ENV_CONFIG["max_steps"],
-    eps_start=1.0,
-    eps_end=0.01,
-    eps_decay=0.995,
+    eps_start=EPS_START,
+    eps_end=EPS_END,
+    eps_decay=EPS_DECAY,
     opponent_policies=None,
     checkpoint_prefix=None,
     final_model_path=None,
@@ -233,9 +246,26 @@ def run_dqn_experiment(
     result_root="results",
     num_episodes=NUM_EPISODES,
     test_episodes=TEST_EPISODES,
+    config=None,
+    runtime=None,
 ):
-    set_seed(SEED + seed_offset)
-    env = make_env()
+    config = config or default_config_dict()
+    training_config = config["training"]
+    dqn_config = config["dqn"]
+    env_config = config["env"]
+
+    name = training_config.get("name", name)
+    algorithm = training_config.get("algorithm", algorithm)
+    result_root = training_config.get("result_root", result_root)
+    seed_offset = training_config.get("seed_offset", seed_offset)
+    num_episodes = training_config.get("num_episodes", num_episodes)
+    test_episodes = training_config.get("test_episodes", test_episodes)
+    firm_id = training_config.get("firm_id", FIRM_ID)
+    action_size = training_config.get("action_size", ACTION_SIZE)
+    seed = training_config.get("seed", SEED) + seed_offset
+
+    set_seed(seed)
+    env = make_env(env_config)
     opponent_policies = make_opponent_policies()
     result_dir = Path(result_root) / name
     checkpoint_dir = result_dir / "checkpoints"
@@ -243,15 +273,19 @@ def run_dqn_experiment(
 
     agent = agent_class(
         state_size=3,
-        action_size=ACTION_SIZE,
-        firm_id=FIRM_ID,
-        max_order=ACTION_SIZE,
+        action_size=action_size,
+        firm_id=firm_id,
+        max_order=action_size,
+        **dqn_config,
     )
     training_scores = train_dqn_agent(
         env,
         agent,
         num_episodes=num_episodes,
-        max_t=ENV_CONFIG["max_steps"],
+        max_t=env_config["max_steps"],
+        eps_start=training_config.get("eps_start", EPS_START),
+        eps_end=training_config.get("eps_end", EPS_END),
+        eps_decay=training_config.get("eps_decay", EPS_DECAY),
         opponent_policies=opponent_policies,
         checkpoint_prefix=str(checkpoint_dir / name),
         final_model_path=str(result_dir / "model.pth"),
@@ -288,17 +322,21 @@ def run_dqn_experiment(
         satisfied_demand_history,
         summary,
         {
-            "env": ENV_CONFIG,
-            "firm_id": FIRM_ID,
-            "action_size": ACTION_SIZE,
-            "num_episodes": num_episodes,
-            "test_episodes": test_episodes,
-            "seed": SEED + seed_offset,
+            **as_plain_config(config),
+            "effective_seed": seed,
         },
+        runtime=runtime_finish(runtime) if runtime else None,
     )
     return summary
 
 
-if __name__ == "__main__":
-    summary = run_dqn_experiment()
+@hydra.main(version_base=None, config_path="../cfg", config_name="dqn")
+def main(cfg):
+    cfg = hydra_config_to_dict(cfg)
+    runtime = runtime_start()
+    summary = run_dqn_experiment(config=cfg, runtime=runtime)
     print("baseline_dqn summary:", summary)
+
+
+if __name__ == "__main__":
+    main()
