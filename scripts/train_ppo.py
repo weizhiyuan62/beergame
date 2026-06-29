@@ -223,6 +223,7 @@ def run_ppo_experiment(
     firm_id = training_config.get("firm_id", FIRM_ID)
     action_size = training_config.get("action_size", ACTION_SIZE)
     seed = training_config.get("seed", SEED) + seed_offset
+    eval_seed_offset = training_config.get("eval_seed_offset")
 
     set_seed(seed)
     env = make_env(env_config)
@@ -247,6 +248,8 @@ def run_ppo_experiment(
         final_model_path=str(result_dir / "model.pth"),
         reward_scale=reward_scale,
     )
+    if eval_seed_offset is not None:
+        set_seed(seed + eval_seed_offset)
     (
         test_scores,
         inventory_history,

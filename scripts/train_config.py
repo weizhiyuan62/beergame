@@ -32,6 +32,7 @@ class TrainingConfig:
     test_episodes: int = 20
     seed: int = 42
     seed_offset: int = 0
+    eval_seed_offset: int | None = None
     eps_start: float = 1.0
     eps_end: float = 0.01
     eps_decay: float = 0.995

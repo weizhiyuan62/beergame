@@ -264,6 +264,7 @@ def run_dqn_experiment(
     firm_id = training_config.get("firm_id", FIRM_ID)
     action_size = training_config.get("action_size", ACTION_SIZE)
     seed = training_config.get("seed", SEED) + seed_offset
+    eval_seed_offset = training_config.get("eval_seed_offset")
 
     set_seed(seed)
     env = make_env(env_config)
@@ -291,6 +292,8 @@ def run_dqn_experiment(
         checkpoint_prefix=str(checkpoint_dir / name),
         final_model_path=str(result_dir / "model.pth"),
     )
+    if eval_seed_offset is not None:
+        set_seed(seed + eval_seed_offset)
     (
         test_scores,
         inventory_history,

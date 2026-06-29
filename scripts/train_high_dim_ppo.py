@@ -232,6 +232,7 @@ def run_high_dim_ppo_experiment(
     test_episodes = training_config.get("test_episodes", test_episodes)
     firm_id = training_config.get("firm_id", FIRM_ID)
     seed = training_config.get("seed", SEED) + seed_offset
+    eval_seed_offset = training_config.get("eval_seed_offset")
 
     set_seed(seed)
     env = make_high_dim_env(env_config, high_dim_config)
@@ -258,6 +259,8 @@ def run_high_dim_ppo_experiment(
         action_space=action_space,
         high_dim_config=high_dim_config,
     )
+    if eval_seed_offset is not None:
+        set_seed(seed + eval_seed_offset)
     (
         test_scores,
         inventory_history,

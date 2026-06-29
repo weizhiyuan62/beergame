@@ -1,44 +1,19 @@
 \documentclass[nohyperref]{article}
 
-% Recommended, but optional, packages for figures and better typesetting:
 \usepackage{microtype}
 \usepackage{graphicx}
 \usepackage{subfigure}
-\usepackage{booktabs} % for professional tables
-
-% hyperref makes hyperlinks in the resulting PDF.
+\usepackage{booktabs}
 \usepackage{hyperref}
-
-% Attempt to make hyperref and algorithmic work together better:
 \newcommand{\theHalgorithm}{\arabic{algorithm}}
-
-% Use the ICML 2022 style.
 \usepackage{icml2022}
-
-% For theorems and such
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{mathtools}
 \usepackage{amsthm}
-
-% if you use cleveref..
 \usepackage[capitalize,noabbrev]{cleveref}
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% THEOREMS
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\theoremstyle{plain}
-\newtheorem{theorem}{Theorem}[section]
-\newtheorem{proposition}[theorem]{Proposition}
-\newtheorem{lemma}[theorem]{Lemma}
-\newtheorem{corollary}[theorem]{Corollary}
-\theoremstyle{definition}
-\newtheorem{definition}[theorem]{Definition}
-\newtheorem{assumption}[theorem]{Assumption}
-\theoremstyle{remark}
-\newtheorem{remark}[theorem]{Remark}
-
-\icmltitlerunning{RL for Beer Game}
+\icmltitlerunning{Beer Game RL}
 
 \begin{document}
 
@@ -51,127 +26,69 @@
 
 \icmlaffiliation{pku}{Peking University, Multi-Agent Systems Course Project}
 \icmlcorrespondingauthor{Course Project Team}{course.project@pku.edu.cn}
-\icmlkeywords{Beer Game, Supply Chain, Deep Reinforcement Learning, DQN, Double DQN, PPO}
+\icmlkeywords{Beer Game, Supply Chain, Deep Reinforcement Learning, DQN, PPO}
 
 \vskip 0.3in
 ]
 
 \printAffiliationsAndNotice{}
+\chead{\small\bf Beer Game RL}
 
 \begin{abstract}
-This report studies single-agent reinforcement learning for inventory ordering in the Beer Game. The current codebase trains one learning firm in a three-firm serial supply chain while the other firms are controlled by simple base-stock policies. We compare three standard-action agents, DQN, Double DQN, and PPO, and three high-dimensional action agents, High-Dim DQN, High-Dim Double DQN, and High-Dim PPO. All reported results are taken from the latest complete runs in the current \texttt{results/} directory and the refreshed report figures. In the standard action setting, Double DQN obtains the highest mean test reward, 631.92, while PPO has the lowest standard deviation, 39.30, and the highest demand satisfaction rate, 0.934, over 20 test episodes. In the high-dimensional setting, High-Dim Double DQN reaches the highest mean reward, 445.50, while the newly added High-Dim PPO run reaches 406.50 with lower variance than the high-dimensional value-based agents. The results suggest that PPO remains the most stable standard-action policy, while the vector-order setting is sensitive to both algorithm choice and optimization details.
+This report studies single-agent reinforcement learning for inventory ordering in the Beer Game. We implement and compare DQN, Double DQN, and PPO in the standard scalar order space, and High-Dim DQN, High-Dim Double DQN, and High-Dim PPO in a three-dimensional vector order space. In the complete single-run experiments, standard-action PPO obtains the highest test reward, 627.90, with a demand satisfaction rate of 0.934. In the high-dimensional setting, High-Dim PPO obtains the best single-run reward, 406.63, and outperforms High-Dim DQN and High-Dim Double DQN. To reduce the effect of single-run randomness and mismatched evaluation streams, we further run a controlled high-dimensional experiment with three shared seed offsets and reset evaluation randomness before testing. In this controlled comparison, High-Dim PPO reaches $407.18\pm21.33$ mean reward across seeds, outperforming High-Dim DQN at $339.91\pm18.37$ and High-Dim Double DQN at $306.04\pm46.72$; the best High-Dim PPO run reaches 424.95. Based on reward, stability, and interpretability, we select High-Dim PPO as the main method for the high-dimensional order-space experiment.
 \end{abstract}
 
 \section{Introduction}
 
-The Beer Game is a classical supply-chain decision problem in which firms place orders along a serial chain while facing stochastic demand, inventory holding cost, and shortage penalties. A locally reasonable order decision may still create excessive inventory, unsatisfied demand, and amplified supply-chain fluctuation. This makes the task a useful benchmark for reinforcement learning methods that must balance short-term service quality against long-term inventory cost.
+The Beer Game is a classical dynamic decision problem in supply-chain management. Firms are arranged in a serial chain: downstream firms face stochastic customer demand, while upstream firms receive orders from downstream firms. Ordering decisions affect holding cost, shortage penalties, and procurement cost, so locally reasonable actions can still reduce long-term profit or amplify inventory fluctuations.
 
-The project originally implemented a DQN baseline. The current experiment pipeline has since been extended in four directions. First, Double DQN is included as a value-based improvement that decouples action selection from target evaluation. Second, PPO is added as an on-policy actor-critic method with clipped policy updates. Third, the scalar order action is extended to a high-dimensional order vector, which can represent multi-channel or multi-supplier order allocation. Fourth, PPO is also applied to this high-dimensional action space by treating the enumerated vector orders as categorical policy actions.
+The course code provides the base Beer Game environment and a random policy interface. In this project, firm $1$ is the learning agent and the other firms use a base-stock heuristic, resulting in a single-agent reinforcement learning problem. Starting from a DQN baseline, we add Double DQN and PPO, and then extend the scalar order action into a three-dimensional order vector to study a harder high-dimensional action space.
 
-This report updates the previous project write-up using the current experiment results. It focuses on the actual runs saved under \texttt{results/}, rather than earlier figures or obsolete command formats. The main questions are:
-\begin{itemize}
-    \item Which standard-action algorithm gives the best reward and stability?
-    \item Does Double DQN improve over DQN in the present setting?
-    \item How much harder is the high-dimensional action formulation, and does PPO help in that setting?
-    \item What should be adjusted in future training and experiment management?
-\end{itemize}
+This report reorganizes the full current experiment set instead of reporting only partial results. We ask which algorithm is best in the standard action space, how much harder the high-dimensional formulation is, whether PPO is more suitable than DQN-style methods in that setting, and which result should be selected for the final paper.
 
-\section{Environment and Objective}
+\section{Environment and Task}
 
-\subsection{Beer Game Model}
-
-The environment contains $N=3$ firms in a serial supply chain. Firm $0$ is closest to the external market, firm $1$ is the learning firm in all experiments, and firm $2$ is the upstream supplier. Each episode lasts at most 100 time steps. External market demand follows a Poisson distribution:
+The environment contains $N=3$ firms. Firm $0$ is closest to the external market, firm $1$ is the learning firm, and firm $2$ is the upstream supplier. Each episode lasts 100 steps. External demand follows
 \begin{equation}
 D_t \sim \operatorname{Poisson}(10).
 \end{equation}
-
-For the standard-action agents, the learning firm chooses one discrete order quantity:
+The local observation is the firm's own order, satisfied demand, and inventory:
 \begin{equation}
-a_t \in \{1,2,\ldots,20\}.
+s_{i,t}=[q_{i,t}, d_{i,t}, I_{i,t}].
 \end{equation}
-The local observation contains the firm's order, satisfied demand, and inventory level. Inventory evolves according to the standard Beer Game balance:
+Inventory evolves as
 \begin{equation}
-I_{t+1}=I_t+q_t-d_t,
+I_{i,t+1}=I_{i,t}+q_{i,t}-d_{i,t}.
 \end{equation}
-where $q_t$ is the received or ordered quantity represented by the environment transition and $d_t$ is satisfied demand.
-
-\subsection{Reward}
-
-The learning objective is to maximize cumulative firm profit. The instantaneous reward combines sales revenue, procurement cost, holding cost, and shortage penalty:
+The immediate reward combines sales revenue, procurement cost, holding cost, and shortage penalty:
 \begin{equation}
-r_t=p_i d_t-p_{i+1}q_t-hI_t-c\max(0,D_t-d_t).
+r_{i,t}=p_i d_{i,t}-p_{i+1}q_{i,t}-hI_{i,t}-c\max(0,D_{i,t}-d_{i,t}).
 \end{equation}
-The experiments use prices $[10,9,8]$, holding cost $h=0.5$, shortage penalty $c=2.0$, initial inventory 100, and a maximum episode length of 100.
+The experiments use prices $[10,9,8]$, holding cost $h=0.5$, shortage penalty $c=2.0$, and initial inventory 100.
 
-\subsection{Non-Learning Firms}
+\section{Algorithms and Action Spaces}
 
-The non-learning firms use a base-stock heuristic. This keeps the environment more stable than random opponents and makes algorithm comparison easier to interpret. The base-stock policy orders according to the gap between a target inventory and current inventory, clipped to the feasible action range.
+\subsection{Standard Action Algorithms}
 
-\section{Algorithms}
+In the standard action space, the learning firm selects $a_t\in\{1,\ldots,20\}$ at each step. DQN approximates $Q(s,a)$ with a neural network trained from replay-buffer samples and a target network. Double DQN selects the next action with the online network and evaluates it with the target network to reduce overestimation. PPO uses an actor-critic network, GAE, and a clipped policy objective to directly optimize a stochastic policy. The current PPO configuration uses learning rate $10^{-4}$, clip range 0.15, entropy coefficient 0.03, and reward scaling 0.01.
 
-\subsection{DQN}
+\subsection{High-Dimensional Action Algorithms}
 
-DQN approximates $Q(s,a)$ with a neural network and trains from replay-buffer samples. The target is
-\begin{equation}
-y=r+\gamma\max_{a'} Q_{\text{target}}(s',a').
-\end{equation}
-The current DQN run uses 2000 training episodes, 20 test episodes, learning rate $5\times10^{-4}$, discount factor $\gamma=0.99$, replay buffer size 10000, batch size 64, and soft target-network update coefficient $10^{-3}$.
+The high-dimensional action space replaces the scalar order with a three-dimensional order vector. Each channel can choose from $\{0,5,10,15,20\}$, and the total order is constrained to lie between 5 and 20. After invalid combinations are filtered out, the action set contains 34 discrete vector actions. The environment applies channel cost multipliers $[1.0,1.1,1.25]$ when computing procurement cost. High-Dim DQN and High-Dim Double DQN learn Q-values over the 34 composite actions. High-Dim PPO treats the composite actions as categories in a categorical policy and maps the selected category back to an order vector.
 
-\subsection{Double DQN}
+This enumerated design makes the comparison with DQN straightforward, but it is also difficult: similar order vectors are treated as unrelated actions, and the learner cannot directly exploit structure such as similar total order quantities or channel substitutions. The high-dimensional experiment therefore tests both action-space scaling and exploration quality.
 
-Double DQN reduces the maximization bias of standard DQN by selecting the next action with the online network and evaluating it with the target network:
-\begin{equation}
-a^*=\arg\max_{a'} Q_{\text{online}}(s',a'),
-\end{equation}
-\begin{equation}
-y=r+\gamma Q_{\text{target}}(s',a^*).
-\end{equation}
-The current Double DQN run uses the same DQN hyperparameters as the standard DQN comparison run, except for the seed offset used to separate random streams.
+\section{Experimental Design}
 
-\subsection{PPO}
+All experiments use Hydra configuration files. Outputs are saved under \path{results/<algorithm>/<timestamp>/} and include the model, training scores, test scores, test trajectories, and \path{summary.json}. The complete single-run comparison uses the latest available runs in the current repository: standard DQN, Double DQN, PPO, High-Dim DQN, High-Dim Double DQN, and High-Dim PPO are each trained for 2000 episodes and evaluated for 20 test episodes.
 
-PPO trains a stochastic policy and value function with clipped policy-gradient updates. The current run uses learning rate $10^{-4}$, discount factor $0.99$, GAE parameter $0.95$, clip range $0.15$, entropy coefficient $0.03$, four update epochs, minibatch size 64, and reward scaling $0.01$. PPO is included because the Beer Game ordering policy can benefit from a directly optimized stochastic policy, especially when the value-function estimates of DQN-style methods are noisy.
+A single run is not enough to support a robust conclusion. Different algorithms use different seed offsets, and each algorithm consumes a different amount of randomness during training, so test demand sequences may not be identical. We therefore add a controlled high-dimensional experiment. High-Dim DQN, High-Dim Double DQN, and High-Dim PPO are run with shared seed offsets $\{0,100,200\}$, each for 2000 training episodes. Before evaluation, the random stream is reset so that algorithms with the same seed offset face the same test demand sequence.
 
-\subsection{High-Dimensional Action Agents}
-
-The high-dimensional setting replaces the scalar order with a three-dimensional order vector. Each dimension can be interpreted as a channel or supplier. The available per-channel levels are $\{0,5,10,15,20\}$, and the total order is constrained to be between 5 and 20. After filtering invalid combinations, the action set contains 34 discrete composite actions. DQN and Double DQN learn Q-values over these composite actions. High-Dim PPO uses the same enumeration, but trains a categorical actor-critic policy over the 34 vector-order choices and maps the selected category back to an order vector before stepping the environment.
-
-\section{Experiment Management}
-
-The current experiments are managed by Hydra configuration files in \texttt{cfg/}. Each training script writes its own outputs to a timestamped directory under \texttt{results/<algorithm>/}. A run directory contains the resolved Hydra configuration, logs, model checkpoint, training scores, test scores, test trajectory history, runtime metadata, and \texttt{summary.json}. The plotting script then reads selected run directories and writes consolidated figures under \texttt{results/summary/<timestamp>/}.
+\section{Complete Single-Run Results}
 
 \begin{table}[t]
-\caption{Latest complete runs used in the main comparison.}
-\label{tab:runs}
-\vskip 0.15in
-\begin{center}
-\begin{scriptsize}
-\begin{tabular}{llcc}
-\toprule
-Algorithm & Run directory & Train eps. & Runtime (s) \\
-\midrule
-DQN & \texttt{20260629\_200133} & 2000 & 173.02 \\
-Double DQN & \texttt{20260629\_200430} & 2000 & 171.98 \\
-PPO & \texttt{20260629\_200726} & 2000 & 164.37 \\
-High-Dim DQN & \texttt{20260629\_201014} & 2000 & 188.58 \\
-High-Dim Double DQN & \texttt{20260629\_201327} & 2000 & 175.79 \\
-High-Dim PPO & \texttt{20260629\_193915} & 2000 & 162.55 \\
-\bottomrule
-\end{tabular}
-\end{scriptsize}
-\end{center}
-\vskip -0.1in
-\end{table}
-
-\section{Results}
-
-\subsection{Standard-Action Results}
-
-\cref{tab:standard-results} summarizes the latest standard-action runs. Double DQN obtains the highest mean reward, but its advantage over DQN is small: 0.85 reward points. PPO has a slightly lower mean reward than Double DQN, but it has the lowest test-reward standard deviation and the highest demand satisfaction rate. Thus the current standard-action comparison does not have a single dominant winner: Double DQN is marginally best in mean reward, while PPO is the most stable and service-oriented policy.
-
-\begin{table}[t]
-\caption{Standard-action test performance over 20 test episodes.}
-\label{tab:standard-results}
+\caption{Standard scalar-action performance over 20 test episodes.}
+\label{tab:standard}
 \vskip 0.15in
 \begin{center}
 \begin{small}
@@ -179,12 +96,11 @@ High-Dim PPO & \texttt{20260629\_193915} & 2000 & 162.55 \\
 \toprule
 Metric & DQN & Double DQN & PPO \\
 \midrule
-Mean reward & 631.08 & \textbf{631.92} & 627.90 \\
-Reward std. & 67.19 & 48.77 & \textbf{39.30} \\
-Avg. inventory & 16.58 & \textbf{16.37} & 17.41 \\
-Avg. order & 8.37 & \textbf{8.18} & 8.45 \\
-Satisfied demand & 9.26 & 9.07 & \textbf{9.32} \\
-Demand satisfaction & 0.914 & 0.917 & \textbf{0.934} \\
+Mean reward & 611.68 & 611.88 & \textbf{627.90} \\
+Reward std. & 60.96 & 48.61 & \textbf{39.30} \\
+Avg. inventory & 18.04 & \textbf{16.69} & 17.41 \\
+Avg. order & 8.63 & \textbf{8.20} & 8.45 \\
+Demand satisfaction & \textbf{0.937} & 0.917 & 0.934 \\
 \bottomrule
 \end{tabular}
 \end{small}
@@ -192,64 +108,21 @@ Demand satisfaction & 0.914 & 0.917 & \textbf{0.934} \\
 \vskip -0.1in
 \end{table}
 
-\begin{figure}[t]
-\vskip 0.1in
-\begin{center}
-\includegraphics[width=\columnwidth]{images/current_comparison_test_scores.png}
-\caption{Mean test reward comparison. Error bars show one standard deviation across 20 test episodes.}
-\label{fig:test-score}
-\end{center}
-\vskip -0.15in
-\end{figure}
-
-\subsection{Training Dynamics}
-
-\cref{fig:training} shows the moving-average training reward. PPO improves fastest and avoids the very large negative early returns observed in the high-dimensional value-based agents. DQN and Double DQN both recover from poor early exploration and converge to a similar reward range. The high-dimensional agents start with much lower rewards and recover more slowly, which is consistent with their larger composite action space. The new High-Dim PPO run follows the same difficult early phase but later reaches a higher test reward than the high-dimensional value-based agents.
-
-\begin{figure}[t]
-\vskip 0.1in
-\begin{center}
-\includegraphics[width=\columnwidth]{images/current_comparison_training_curve.png}
-\caption{Training reward moving average for the latest complete runs.}
-\label{fig:training}
-\end{center}
-\vskip -0.15in
-\end{figure}
-
-\subsection{Inventory and Ordering Behavior}
-
-\cref{fig:behavior} compares average inventory, order quantity, and unsatisfied demand during testing. All methods draw down the initial inventory quickly and then operate near a lower steady inventory band. Among the scalar-action agents, PPO has the highest demand satisfaction rate, while Double DQN uses the lowest average inventory and order quantity. The high-dimensional agents keep higher inventory on average but still do not fully convert this into scalar-action-level reward, indicating that the extra action dimensions introduce cost and exploration difficulty. However, High-Dim PPO has lower reward variance than the high-dimensional value-based agents, and High-Dim Double DQN achieves the best high-dimensional mean reward in the refreshed comparison.
-
-\begin{figure}[t]
-\vskip 0.1in
-\begin{center}
-\includegraphics[width=\columnwidth]{images/current_comparison_behavior.png}
-\caption{Average inventory, order quantity, and unsatisfied demand during testing.}
-\label{fig:behavior}
-\end{center}
-\vskip -0.15in
-\end{figure}
-
-\subsection{High-Dimensional Results}
-
-\cref{tab:highdim-results} reports the latest high-dimensional runs with the same 2000-episode training budget. High-Dim Double DQN obtains the highest mean reward among the high-dimensional agents, reaching 445.50. High-Dim PPO reaches 406.50, which is higher than High-Dim DQN and has the lowest reward standard deviation among the high-dimensional methods. High-Dim Double DQN has the highest demand satisfaction rate, 0.944. Nevertheless, even the best high-dimensional reward remains below the scalar-action agents, showing that the vector-order formulation remains harder under the current enumerated action design.
-
 \begin{table}[t]
-\caption{High-dimensional action test performance over 20 test episodes.}
-\label{tab:highdim-results}
+\caption{Three-dimensional vector-action performance over 20 test episodes.}
+\label{tab:highdim-single}
 \vskip 0.15in
 \begin{center}
 \begin{small}
 \begin{tabular}{lccc}
 \toprule
-Metric & DQN & Double DQN & PPO \\
+Metric & HD DQN & HD Double DQN & HD PPO \\
 \midrule
-Mean reward & 365.32 & \textbf{445.50} & 406.50 \\
-Reward std. & 103.79 & 105.25 & \textbf{79.60} \\
-Avg. inventory & \textbf{20.61} & 21.69 & 21.92 \\
-Avg. order & \textbf{8.24} & 8.46 & 8.51 \\
-Satisfied demand & 9.13 & 9.34 & \textbf{9.37} \\
-Demand satisfaction & 0.901 & \textbf{0.944} & 0.939 \\
+Mean reward & 357.75 & 299.50 & \textbf{406.63} \\
+Reward std. & 100.91 & 104.83 & \textbf{74.12} \\
+Avg. inventory & 21.73 & \textbf{20.54} & 21.51 \\
+Avg. order & 8.43 & \textbf{8.06} & 8.42 \\
+Demand satisfaction & 0.917 & 0.904 & \textbf{0.930} \\
 \bottomrule
 \end{tabular}
 \end{small}
@@ -257,51 +130,76 @@ Demand satisfaction & 0.901 & \textbf{0.944} & 0.939 \\
 \vskip -0.1in
 \end{table}
 
+\cref{tab:standard} shows that PPO is best in the standard scalar action space, with mean reward 627.90 and the lowest reward standard deviation, 39.30. DQN has a slightly higher demand satisfaction rate, but lower reward, indicating that service level alone does not determine profit because holding and procurement costs also matter. Double DQN reduces variance and inventory relative to DQN, but its mean reward is nearly tied with DQN.
+
+\cref{tab:highdim-single} shows that High-Dim PPO is the best method in the complete high-dimensional single-run experiment. It obtains mean reward 406.63 and the lowest reward variance. High-Dim DQN reaches 357.75, while High-Dim Double DQN reaches 299.50. This suggests that directly optimizing a stochastic policy is more stable than value-based off-policy learning in the current enumerated vector action space.
+
 \begin{figure}[t]
 \vskip 0.1in
 \begin{center}
-\includegraphics[width=\columnwidth]{images/high_dim_ppo_test_results.png}
-\caption{High-Dim PPO inventory, ordering, demand satisfaction, and test rewards.}
-\label{fig:highdim-ppo-detail}
+\includegraphics[width=\columnwidth]{images/summary_205932_comparison_test_scores.png}
+\caption{Test reward comparison for the complete single-run experiments, including all six standard and high-dimensional algorithms.}
+\label{fig:single-test}
 \end{center}
 \vskip -0.15in
 \end{figure}
 
-\begin{table}[t]
-\caption{Additional high-dimensional exploratory runs currently present in \texttt{results/}.}
-\label{tab:extra-highdim}
+\begin{figure}[t]
+\vskip 0.1in
+\begin{center}
+\includegraphics[width=\columnwidth]{images/summary_205932_comparison_training_curve.png}
+\caption{Moving-average training reward curves for the complete single-run experiments. The high-dimensional methods have larger early negative returns, reflecting harder exploration in the composite action space.}
+\label{fig:single-training}
+\end{center}
+\vskip -0.15in
+\end{figure}
+
+\cref{fig:single-test} visualizes the six-algorithm test comparison: standard PPO is best overall, and High-Dim PPO is best among the high-dimensional agents. \cref{fig:single-training} shows that scalar-action methods stabilize faster, while high-dimensional methods incur larger early exploration costs.
+
+\section{Controlled High-Dimensional Results}
+
+\begin{table}[H]
+\caption{Controlled high-dimensional experiment. Means and standard deviations are computed across 3 training seeds; each seed-level value is a mean over 20 test episodes.}
+\label{tab:controlled}
 \vskip 0.15in
 \begin{center}
 \begin{scriptsize}
-\begin{tabular}{lcccc}
+\begin{tabular}{lrrrr}
 \toprule
-Algorithm & Run & Train eps. & LR & Mean reward \\
+Method & Reward & Sat. & Inv. & Order \\
 \midrule
-High-Dim DQN & \texttt{162220} & 1500 & $10^{-3}$ & 351.70 \\
-High-Dim Double DQN & \texttt{163325} & 1500 & $10^{-3}$ & \textbf{406.10} \\
+HD PPO & \textbf{407.18$\pm$21.33} & \textbf{0.946} & \textbf{22.25} & 8.43 \\
+HD DQN & 339.91$\pm$18.37 & 0.934 & 22.76 & \textbf{8.32} \\
+HD DDQN & 306.04$\pm$46.72 & 0.938 & 23.07 & 8.35 \\
 \bottomrule
 \end{tabular}
 \end{scriptsize}
 \end{center}
 \vskip -0.1in
 \end{table}
+
+\begin{figure}[H]
+\vskip 0.02in
+\begin{center}
+\includegraphics[width=0.88\columnwidth]{images/controlled_high_dim_main_rewards.png}
+\caption{Mean test reward in the controlled high-dimensional 3-seed experiment. Error bars show standard deviation across training seeds.}
+\label{fig:controlled}
+\end{center}
+\vskip -0.12in
+\end{figure}
+
+\cref{tab:controlled} and \cref{fig:controlled} confirm the single-run result. High-Dim PPO reaches $407.18\pm21.33$ mean reward across three training seeds, outperforming both High-Dim DQN and High-Dim Double DQN. High-Dim Double DQN has the largest cross-seed standard deviation, suggesting higher sensitivity to initialization and exploration path. The best High-Dim PPO controlled run uses seed offset 200 and reaches mean reward 424.95 with demand satisfaction 0.949. We select this High-Dim PPO run as the best high-dimensional policy result.
 
 \section{Discussion}
 
-The main current conclusion is that the scalar-action methods still dominate the high-dimensional methods. Double DQN has the highest scalar mean reward in the refreshed comparison, while PPO has the lowest variance and highest scalar demand satisfaction rate. PPO's advantage is not caused by much higher average ordering: its average order quantity remains close to DQN and Double DQN, suggesting a better balance between inventory protection and holding cost.
+The full results show that scalar-action policies still outperform the current high-dimensional policies. This does not imply that vector orders are useless; rather, the current high-dimensional implementation enumerates 34 vector orders as unstructured categorical actions. This increases exploration difficulty and prevents the learner from exploiting relationships between similar order vectors.
 
-Double DQN marginally beats DQN in mean reward in the current scalar setting and substantially reduces test-reward variance from 67.19 to 48.77. It also uses lower average inventory and order quantity, so its value is mostly risk reduction and leaner inventory behavior rather than a large reward improvement.
+Within the high-dimensional task, PPO is the strongest choice. First, in the complete single-run experiment, High-Dim PPO obtains both the highest mean reward and the lowest reward variance. Second, in the controlled 3-seed comparison, PPO remains consistently ahead. Third, PPO's stochastic policy and entropy regularization help maintain exploration over order allocation choices, while DQN-style methods are more exposed to noisy Q-value estimates in the composite action space.
 
-The high-dimensional formulation is still not competitive with scalar-action agents. Although it can represent richer order allocation, the composite action space makes exploration harder and increases value-estimation or policy-search variance. High-Dim Double DQN improves the best high-dimensional mean reward to 445.50 in the refreshed comparison. High-Dim PPO does not beat that mean reward, but it has the lowest high-dimensional reward variance, suggesting that policy-gradient training is still a useful direction. The gap to scalar methods remains large, so the current enumerated vector-action design has not yet produced a better ordering policy than the simpler scalar formulation.
-
-\section{Recommendations}
-
-Future training should prioritize three changes. First, repeat each algorithm over multiple seeds and report confidence intervals; the current results are single-run comparisons and should not be interpreted as statistically final. Second, keep PPO as the main standard-action baseline and tune it around entropy coefficient, clip range, and reward scaling. Third, continue the high-dimensional PPO direction, but redesign the policy to avoid treating every composite order as an unrelated categorical action. A factorized policy or autoregressive order allocator would better match the multi-channel structure and reduce exploration difficulty.
-
-For experiment management, the current Hydra-based layout should be retained. Each run already saves runtime metadata, resolved configuration, logs, model files, scores, and summaries under timestamped \texttt{results/<algorithm>/} directories. The report should continue to state exactly which run directories are used, because the plotting script selects the latest complete run by algorithm name unless explicit result paths are supplied.
+The standard-action results also show that maximizing profit is not the same as maximizing demand satisfaction. Standard DQN has the highest satisfaction rate, but PPO obtains higher reward and lower variance. Future high-dimensional methods should therefore model the tradeoff between procurement, holding, and shortage costs more structurally. A factorized or autoregressive policy that generates orders channel by channel would likely be better than enumerating every vector order as an unrelated category.
 
 \section{Conclusion}
 
-Using the current saved results, scalar-action agents remain the strongest policies for the Beer Game inventory-control task. Double DQN obtains the best scalar mean reward, 631.92, while PPO has the lowest scalar reward standard deviation, 39.30, and the highest scalar demand satisfaction rate, 0.934. In the high-dimensional action setting, High-Dim Double DQN obtains the best mean reward, 445.50, and High-Dim PPO achieves a competitive mean reward of 406.50 with lower variance than the high-dimensional value-based methods. However, high-dimensional policies are still below scalar policies, so the next experimental step should be multi-seed evaluation and targeted tuning of factorized or autoregressive high-dimensional action policies.
+This report provides a complete comparison of standard and high-dimensional reinforcement learning methods for Beer Game inventory control. In the standard action space, PPO obtains the best mean test reward, 627.90, and the lowest reward variance. In the high-dimensional order space, High-Dim PPO obtains 406.63 in the complete single-run experiment and $407.18\pm21.33$ in the controlled 3-seed experiment; the best controlled PPO run reaches 424.95. These results outperform High-Dim DQN and High-Dim Double DQN. We therefore select High-Dim PPO as the best high-dimensional experimental result and the main method for the final paper.
 
 \end{document}
