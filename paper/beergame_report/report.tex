@@ -1,32 +1,57 @@
 \documentclass[nohyperref]{article}
 
+% Recommended, but optional, packages for figures and better typesetting:
 \usepackage{microtype}
 \usepackage{graphicx}
 \usepackage{subfigure}
-\usepackage{booktabs}
+\usepackage{booktabs} % for professional tables
+
+% hyperref makes hyperlinks in the resulting PDF.
+\usepackage{hyperref}
+
+% Attempt to make hyperref and algorithmic work together better:
+\newcommand{\theHalgorithm}{\arabic{algorithm}}
+
+% Use the ICML 2022 style.
+\usepackage{icml2022}
+
+% For theorems and such
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{mathtools}
 \usepackage{amsthm}
-\usepackage[UTF8]{ctex}
-\usepackage{hyperref}
-\usepackage[capitalize,noabbrev]{cleveref}
-\usepackage{icml2022}
 
-\providecommand{\theHalgorithm}{\arabic{algorithm}}
-\icmltitlerunning{基于 Double DQN 的啤酒游戏订货策略优化}
+% if you use cleveref..
+\usepackage[capitalize,noabbrev]{cleveref}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% THEOREMS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+\icmltitlerunning{RL for Beer Game}
 
 \begin{document}
 
 \twocolumn[
-\icmltitle{基于 Double DQN 的啤酒游戏订货策略优化}
+\icmltitle{Reinforcement Learning for Beer Game Inventory Control}
 
 \begin{icmlauthorlist}
-\icmlauthor{课程项目小组}{pku}
+\icmlauthor{Course Project Team}{pku}
 \end{icmlauthorlist}
 
-\icmlaffiliation{pku}{北京大学，供应链管理课程项目}
-\icmlkeywords{Beer Game, Supply Chain, Deep Reinforcement Learning, DQN, Double DQN}
+\icmlaffiliation{pku}{Peking University, Multi-Agent Systems Course Project}
+\icmlcorrespondingauthor{Course Project Team}{course.project@pku.edu.cn}
+\icmlkeywords{Beer Game, Supply Chain, Deep Reinforcement Learning, DQN, Double DQN, PPO}
 
 \vskip 0.3in
 ]
@@ -34,179 +59,131 @@
 \printAffiliationsAndNotice{}
 
 \begin{abstract}
-本文围绕啤酒游戏（Beer Game）中的串行供应链订货决策问题，研究如何使用深度强化学习方法优化单个企业的长期利润。我们首先复现了基于 Deep Q-Network（DQN）的单智能体基线方法，将三阶段供应链中的第 2 个企业作为学习智能体，其余企业作为环境的一部分。随后，针对标准 DQN 容易产生 Q 值过估计的问题，引入 Double DQN 作为算法改进，并使用基础库存（base-stock）启发式策略控制非学习企业，从而形成更稳定的实验环境。实验结果显示，在相同训练轮数和测试设置下，Double DQN 的平均测试收益由 357.30 提升到 455.65，需求满足率由 0.772 提升到 0.817，说明改进算法在本实验设置下获得了更好的订货策略。
+This report studies single-agent reinforcement learning for inventory ordering in the Beer Game. The current codebase trains one learning firm in a three-firm serial supply chain while the other firms are controlled by simple base-stock policies. We compare three standard-action agents, DQN, Double DQN, and PPO, and two high-dimensional action agents, High-Dim DQN and High-Dim Double DQN. All reported results are taken from the current \texttt{results/} directory and use the latest complete run for each algorithm. In the standard action setting, PPO achieves the best test reward, with a mean reward of 627.90 and a standard deviation of 39.30 over 20 test episodes. DQN and Double DQN obtain similar mean rewards, while Double DQN has lower reward variance. The high-dimensional action setting is substantially harder: the latest High-Dim DQN and High-Dim Double DQN runs achieve mean rewards of 357.75 and 299.50, respectively, despite maintaining relatively high demand satisfaction rates. The results suggest that PPO is currently the strongest standard-action policy, and that the high-dimensional ordering formulation needs additional tuning or a different action-factorization design before it can outperform the scalar-ordering agents.
 \end{abstract}
 
-\section{引言}
+\section{Introduction}
 
-啤酒游戏是供应链管理教学和研究中常用的动态决策问题。多个企业按串行结构组成供应链，下游企业面对外部需求，上游企业根据下游订单安排补货。由于订单传递、库存约束和需求随机性的共同作用，局部最优的订货行为可能导致库存积压、缺货损失以及供应链波动放大等现象。
+The Beer Game is a classical supply-chain decision problem in which firms place orders along a serial chain while facing stochastic demand, inventory holding cost, and shortage penalties. A locally reasonable order decision may still create excessive inventory, unsatisfied demand, and amplified supply-chain fluctuation. This makes the task a useful benchmark for reinforcement learning methods that must balance short-term service quality against long-term inventory cost.
 
-本项目的目标是在给定 Beer Game 仿真环境中，选择一个企业作为研究对象，通过调节其订货数量来优化利润。按照课程要求，我们首先复现单智能体 DQN baseline，并进一步提出一个算法层面的改进：使用 Double DQN 替代标准 DQN 的目标值估计方式。相比直接取目标网络的最大 Q 值，Double DQN 将动作选择和动作评估拆分到在线网络与目标网络中，有助于缓解过估计问题。
+The project originally implemented a DQN baseline. The current experiment pipeline has since been extended in three directions. First, Double DQN is included as a value-based improvement that decouples action selection from target evaluation. Second, PPO is added as an on-policy actor-critic method with clipped policy updates. Third, the scalar order action is extended to a high-dimensional order vector, which can represent multi-channel or multi-supplier order allocation.
 
-本文的主要工作包括：第一，基于课程环境实现三企业串行供应链建模；第二，复现 DQN 训练、测试、模型保存和可视化流程；第三，实现 Double DQN 并与 DQN 在相同环境下进行比较；第四，引入 base-stock 启发式策略作为非学习企业的订货规则，使实验结果更易复现和分析。
+This report updates the previous project write-up using the current experiment results. It focuses on the actual runs saved under \texttt{results/}, rather than earlier figures or obsolete command formats. The main questions are:
+\begin{itemize}
+    \item Which standard-action algorithm gives the best reward and stability?
+    \item Does Double DQN improve over DQN in the present setting?
+    \item How much harder is the high-dimensional action formulation?
+    \item What should be adjusted in future training and experiment management?
+\end{itemize}
 
-\section{问题建模}
+\section{Environment and Objective}
 
-\subsection{供应链环境}
+\subsection{Beer Game Model}
 
-实验环境包含 $N=3$ 个企业。企业按照串行结构连接，下游企业面对外部市场需求，其他企业面对其下游企业的订单需求。在代码实现中，企业索引为 $0,1,2$，其中企业 $0$ 是最下游零售商，企业 $1$ 是本文训练的学习对象，企业 $2$ 是上游企业。
-
-每个 episode 最多运行 100 个时间步。外部市场需求服从泊松分布：
+The environment contains $N=3$ firms in a serial supply chain. Firm $0$ is closest to the external market, firm $1$ is the learning firm in all experiments, and firm $2$ is the upstream supplier. Each episode lasts at most 100 time steps. External market demand follows a Poisson distribution:
 \begin{equation}
-D_t \sim \operatorname{Poisson}(\lambda), \quad \lambda=10.
-\end{equation}
-每个企业在时间步 $t$ 选择订货动作 $q_{i,t}$，动作空间为离散整数 $\{1,2,\ldots,20\}$。
-
-\subsection{状态与转移}
-
-每个企业的局部观察由三部分组成：订单量、满足需求量和库存水平：
-\begin{equation}
-s_{i,t} = [q_{i,t}, d_{i,t}, I_{i,t}],
-\end{equation}
-其中 $q_{i,t}$ 表示企业 $i$ 的订货量，$d_{i,t}$ 表示实际满足的需求量，$I_{i,t}$ 表示当前库存。
-
-库存转移遵循：
-\begin{equation}
-I_{i,t+1} = I_{i,t} + q_{i,t} - d_{i,t}.
-\end{equation}
-对于最下游企业，其需求来自外部市场；对于其他企业，其需求等于下游企业的订货量。环境在每个时间步根据库存约束计算可满足需求，并同步更新库存。
-
-\subsection{奖励函数}
-
-企业 $i$ 的即时奖励由销售收入、向上游采购成本、库存持有成本和缺货损失构成：
-\begin{equation}
-r_{i,t}=p_i d_{i,t}-p_{i+1}q_{i,t}-hI_{i,t}-c\max(0,D_{i,t}-d_{i,t}),
-\end{equation}
-其中 $p_i$ 为企业 $i$ 的售价，$h=0.5$ 为库存持有成本，$c=2$ 为缺货损失系数。实验中价格设置为 $[10,9,8]$，初始库存为 100。训练目标是最大化学习企业在整个 episode 中的累计收益。
-
-\section{方法}
-
-\subsection{DQN 基线方法}
-
-DQN 使用神经网络近似动作价值函数 $Q(s,a)$。本文中的 Q 网络为三层全连接网络：输入维度为 3，对应企业局部状态；两个隐藏层均包含 64 个神经元；输出维度为 20，对应 20 个离散订货动作。
-
-训练过程中，智能体使用 $\epsilon$-greedy 策略进行探索。初始 $\epsilon=1.0$，每个 episode 后按 0.995 衰减，最低降至 0.01。经验样本存入 replay buffer，并以 batch size 64 进行随机采样训练。标准 DQN 的目标值为：
-\begin{equation}
-y = r + \gamma \max_{a'} Q_{\text{target}}(s',a'),
-\end{equation}
-其中折扣因子 $\gamma=0.99$。目标网络通过软更新与在线网络保持接近，软更新系数为 $\tau=10^{-3}$。
-
-\subsection{Double DQN 改进}
-
-标准 DQN 使用同一个目标网络完成下一个状态的动作选择和价值评估，容易引入最大化偏差。Double DQN 的核心思想是将这两个步骤解耦：先用在线网络选择下一个动作，再用目标网络评估该动作价值：
-\begin{equation}
-a^* = \arg\max_{a'} Q_{\text{online}}(s',a'),
-\end{equation}
-\begin{equation}
-y = r + \gamma Q_{\text{target}}(s',a^*).
+D_t \sim \operatorname{Poisson}(10).
 \end{equation}
 
-在实现上，Double DQN 复用了 baseline 中的网络结构、经验回放、动作选择、模型保存和软更新机制，仅重写学习步骤中的目标值计算。这种设计使对比实验更加公平，因为 DQN 与 Double DQN 的主要差异集中在算法更新公式上。
-
-\subsection{非学习企业策略}
-
-课程要求中允许其余智能体采用管理学中的供应链策略或随机策略。为了减少纯随机对手带来的额外方差，本文在主要对比实验中为非学习企业设置 base-stock 策略。该策略根据当前库存与目标库存的差距决定订货量：
+For the standard-action agents, the learning firm chooses one discrete order quantity:
 \begin{equation}
-q_{i,t}=\operatorname{clip}(I^{\text{target}}-I_{i,t},1,20),
+a_t \in \{1,2,\ldots,20\}.
 \end{equation}
-其中目标库存设为 100。该策略简单、可解释，并能提供较稳定的供应链背景。
-
-\subsection{高维订单空间扩展}
-
-在原始 Beer Game 环境中，学习企业每个时间步只选择一个标量订货量 $q_{i,t}$。为了研究更复杂的订货决策，本文进一步将动作空间扩展为 $K$ 维订单向量：
+The local observation contains the firm's order, satisfied demand, and inventory level. Inventory evolves according to the standard Beer Game balance:
 \begin{equation}
-a_{i,t} = (q_{i,t}^{(1)}, q_{i,t}^{(2)}, \ldots, q_{i,t}^{(K)}).
+I_{t+1}=I_t+q_t-d_t,
 \end{equation}
-其中每一维可以理解为一种订货渠道、运输方式或供应商。环境使用各维订单量之和作为实际补货量：
+where $q_t$ is the received or ordered quantity represented by the environment transition and $d_t$ is satisfied demand.
+
+\subsection{Reward}
+
+The learning objective is to maximize cumulative firm profit. The instantaneous reward combines sales revenue, procurement cost, holding cost, and shortage penalty:
 \begin{equation}
-q_{i,t}^{\text{total}} = \sum_{k=1}^{K} q_{i,t}^{(k)}.
+r_t=p_i d_t-p_{i+1}q_t-hI_t-c\max(0,D_t-d_t).
 \end{equation}
-同时，不同订单维度设置不同采购成本系数 $\alpha_k$，因此学习企业的采购成本写为：
+The experiments use prices $[10,9,8]$, holding cost $h=0.5$, shortage penalty $c=2.0$, initial inventory 100, and a maximum episode length of 100.
+
+\subsection{Non-Learning Firms}
+
+The non-learning firms use a base-stock heuristic. This keeps the environment more stable than random opponents and makes algorithm comparison easier to interpret. The base-stock policy orders according to the gap between a target inventory and current inventory, clipped to the feasible action range.
+
+\section{Algorithms}
+
+\subsection{DQN}
+
+DQN approximates $Q(s,a)$ with a neural network and trains from replay-buffer samples. The target is
 \begin{equation}
-C_{i,t}=p_{i+1}\sum_{k=1}^{K}\alpha_k q_{i,t}^{(k)}.
+y=r+\gamma\max_{a'} Q_{\text{target}}(s',a').
 \end{equation}
-当 $K=1$ 时，该设定退化为原始一维订货动作；当 $K>1$ 时，智能体不仅需要决定总订货量，还需要决定订单在不同渠道之间的分配方式。
+The current DQN run uses 2000 training episodes, 20 test episodes, learning rate $5\times10^{-4}$, discount factor $\gamma=0.99$, replay buffer size 10000, batch size 64, and soft target-network update coefficient $10^{-3}$.
 
-由于 DQN 处理离散动作，本文将高维订单向量枚举为组合动作。为避免动作空间包含完全不订货或过度订货等极端组合，我们约束组合动作满足 $5 \leq \sum_k q_{i,t}^{(k)} \leq 20$，使其总订货范围与原始实验保持可比。
+\subsection{Double DQN}
 
-\section{实验设置}
+Double DQN reduces the maximization bias of standard DQN by selecting the next action with the online network and evaluating it with the target network:
+\begin{equation}
+a^*=\arg\max_{a'} Q_{\text{online}}(s',a'),
+\end{equation}
+\begin{equation}
+y=r+\gamma Q_{\text{target}}(s',a^*).
+\end{equation}
+The current Double DQN run uses the same DQN hyperparameters as the standard DQN comparison run, except for the seed offset used to separate random streams.
 
-实验在 Python 3.10.16 的 \texttt{beergame} conda 环境中运行。核心依赖包括 NumPy、PyTorch 和 Matplotlib。主要运行命令为：
-\begin{verbatim}
-conda activate beergame
-python -m beergame.policy.experiment
-\end{verbatim}
+\subsection{PPO}
 
-每个算法训练 500 个 episodes，每个 episode 最多 100 步。训练结束后，在 10 个测试 episodes 上评估最终策略。所有实验均训练企业 $1$，企业 $0$ 和企业 $2$ 使用 base-stock 策略。实验脚本会保存最终模型、训练曲线、测试过程图以及算法对比图。
+PPO trains a stochastic policy and value function with clipped policy-gradient updates. The current run uses learning rate $10^{-4}$, discount factor $0.99$, GAE parameter $0.95$, clip range $0.15$, entropy coefficient $0.03$, four update epochs, minibatch size 64, and reward scaling $0.01$. PPO is included because the Beer Game ordering policy can benefit from a directly optimized stochastic policy, especially when the value-function estimates of DQN-style methods are noisy.
 
-在高维订单空间实验中，本文设置 $K=3$，每个维度的可选订单量为 $\{0,5,10,15,20\}$，成本系数为 $[1.0,1.1,1.25]$。组合动作经过总订货量约束 $5 \leq q_{i,t}^{\text{total}} \leq 20$ 后，动作数量为 34。高维实验训练 1000 个 episodes，其余网络结构、折扣因子、经验回放和测试 episodes 数保持不变。运行命令为：
-\begin{verbatim}
-python -m beergame.policy.high_dim_experiment
-\end{verbatim}
+\subsection{High-Dimensional Action Agents}
+
+The high-dimensional setting replaces the scalar order with a three-dimensional order vector. Each dimension can be interpreted as a channel or supplier. The available per-channel levels are $\{0,5,10,15,20\}$, and the total order is constrained to be between 5 and 20. After filtering invalid combinations, the action set contains 34 discrete composite actions. This preserves compatibility with DQN-style algorithms while making exploration and value estimation harder.
+
+\section{Experiment Management}
+
+The current experiments are managed by Hydra configuration files in \texttt{cfg/}. Each training script writes its own outputs to a timestamped directory under \texttt{results/<algorithm>/}. A run directory contains the resolved Hydra configuration, logs, model checkpoint, training scores, test scores, test trajectory history, runtime metadata, and \texttt{summary.json}. The plotting script then reads selected run directories and writes consolidated figures under \texttt{results/summary/<timestamp>/}.
 
 \begin{table}[t]
-\caption{主要实验参数}
-\label{tab:params}
+\caption{Latest complete runs used in the main comparison.}
+\label{tab:runs}
 \vskip 0.15in
 \begin{center}
-\begin{small}
-\begin{tabular}{lc}
+\begin{scriptsize}
+\begin{tabular}{llcc}
 \toprule
-参数 & 数值 \\
+Algorithm & Run directory & Train eps. & Runtime (s) \\
 \midrule
-企业数量 & 3 \\
-学习企业 & 1 \\
-动作空间 & $\{1,\ldots,20\}$ \\
-初始库存 & 100 \\
-泊松需求均值 & 10 \\
-训练 episodes & 500 \\
-测试 episodes & 10 \\
-折扣因子 $\gamma$ & 0.99 \\
-Replay buffer & 10000 \\
-Batch size & 64 \\
-学习率 & $10^{-3}$ \\
+DQN & \texttt{20260629\_161744} & 2000 & 53.57 \\
+Double DQN & \texttt{20260629\_161938} & 2000 & 53.57 \\
+PPO & \texttt{20260629\_161625} & 2000 & 43.98 \\
+High-Dim DQN & \texttt{20260629\_164517} & 2000 & 55.79 \\
+High-Dim Double DQN & \texttt{20260629\_163756} & 2000 & 53.44 \\
 \bottomrule
 \end{tabular}
-\end{small}
+\end{scriptsize}
 \end{center}
 \vskip -0.1in
 \end{table}
 
-\section{实验结果}
+\section{Results}
 
-\subsection{训练曲线}
+\subsection{Standard-Action Results}
 
-\cref{fig:training} 展示了 DQN 与 Double DQN 的训练奖励移动平均曲线。两个算法在训练前期均经历较低收益，这是由于探索率较高，智能体尚未学到稳定的订货策略。随着 episode 增加，探索率逐渐下降，策略收益开始提升。相比 baseline DQN，Double DQN 在后期达到更高的移动平均收益，说明其目标值估计方式在该环境中更有利于稳定学习。
-
-\begin{figure}[t]
-\vskip 0.1in
-\begin{center}
-\includegraphics[width=\columnwidth]{images/comparison_training_curve.png}
-\caption{DQN 与 Double DQN 的训练奖励移动平均对比。}
-\label{fig:training}
-\end{center}
-\vskip -0.15in
-\end{figure}
-
-\subsection{测试收益对比}
-
-\cref{tab:results} 给出了 10 个测试 episodes 上的汇总指标。Double DQN 的平均测试收益为 455.65，高于 DQN 的 357.30；同时其收益标准差为 42.00，低于 DQN 的 51.52。这表明 Double DQN 不仅提升了平均表现，也在一定程度上降低了测试结果波动。
+\cref{tab:standard-results} summarizes the latest standard-action runs. PPO obtains the highest mean test reward and the lowest test-reward standard deviation. DQN and Double DQN are nearly tied in mean reward: Double DQN is higher by only 0.20 reward points, but its standard deviation is lower by about 12.35. This means the current Double DQN improvement is mainly a stability improvement rather than a clear mean-performance improvement.
 
 \begin{table}[t]
-\caption{DQN 与 Double DQN 的测试结果比较}
-\label{tab:results}
+\caption{Standard-action test performance over 20 test episodes.}
+\label{tab:standard-results}
 \vskip 0.15in
 \begin{center}
 \begin{small}
-\begin{tabular}{lcc}
+\begin{tabular}{lccc}
 \toprule
-指标 & DQN & Double DQN \\
+Metric & DQN & Double DQN & PPO \\
 \midrule
-平均测试收益 & 357.30 & \textbf{455.65} \\
-收益标准差 & 51.52 & \textbf{42.00} \\
-平均库存 & 13.77 & 14.29 \\
-平均订货量 & 6.71 & 7.18 \\
-需求满足率 & 0.772 & \textbf{0.817} \\
+Mean reward & 611.68 & 611.88 & \textbf{627.90} \\
+Reward std. & 60.96 & 48.61 & \textbf{39.30} \\
+Avg. inventory & 18.04 & \textbf{16.69} & 17.41 \\
+Avg. order & 8.63 & \textbf{8.20} & 8.45 \\
+Satisfied demand & \textbf{9.49} & 9.07 & 9.32 \\
+Demand satisfaction & \textbf{0.937} & 0.917 & 0.934 \\
 \bottomrule
 \end{tabular}
 \end{small}
@@ -217,70 +194,61 @@ Batch size & 64 \\
 \begin{figure}[t]
 \vskip 0.1in
 \begin{center}
-\includegraphics[width=\columnwidth]{images/comparison_test_scores.png}
-\caption{DQN 与 Double DQN 的平均测试收益对比，误差线表示测试收益标准差。}
+\includegraphics[width=\columnwidth]{images/current_comparison_test_scores.png}
+\caption{Mean test reward comparison. Error bars show one standard deviation across 20 test episodes.}
 \label{fig:test-score}
 \end{center}
 \vskip -0.15in
 \end{figure}
 
-\subsection{订货行为与库存变化}
+\subsection{Training Dynamics}
 
-\cref{fig:dqn-detail} 和 \cref{fig:double-detail} 展示了两个算法在测试阶段的平均库存、平均订货量、需求满足情况和每个测试 episode 的累计收益。可以看到，Double DQN 的平均订货量略高，库存水平也略高，这使其在需求到来时更容易满足订单，最终体现为更高的需求满足率和收益。与此同时，库存成本并未显著抵消收益提升，说明该策略在缺货损失和库存持有成本之间取得了更好的平衡。
-
-\begin{figure}[t]
-\vskip 0.1in
-\begin{center}
-\includegraphics[width=\columnwidth]{images/baseline_dqn_test_results.png}
-\caption{Baseline DQN 在测试阶段的库存、订货量、需求满足和收益表现。}
-\label{fig:dqn-detail}
-\end{center}
-\vskip -0.15in
-\end{figure}
+\cref{fig:training} shows the moving-average training reward. PPO improves fastest and avoids the very large negative early returns observed in the high-dimensional value-based agents. DQN and Double DQN both recover from poor early exploration and converge to a similar reward range. The high-dimensional agents start with much lower rewards and recover more slowly, which is consistent with their larger composite action space.
 
 \begin{figure}[t]
 \vskip 0.1in
 \begin{center}
-\includegraphics[width=\columnwidth]{images/double_dqn_test_results.png}
-\caption{Double DQN 在测试阶段的库存、订货量、需求满足和收益表现。}
-\label{fig:double-detail}
+\includegraphics[width=\columnwidth]{images/current_comparison_training_curve.png}
+\caption{Training reward moving average for the latest complete runs.}
+\label{fig:training}
 \end{center}
 \vskip -0.15in
 \end{figure}
 
-\subsection{高维订单空间实验}
+\subsection{Inventory and Ordering Behavior}
 
-在高维订单空间中，动作不再是单一订货量，而是三维订单向量。该设定提高了策略表达能力，使智能体能够学习订单在不同渠道之间的分配方式；同时，组合动作空间也更复杂，要求算法具有更稳定的价值估计能力。
-
-\cref{fig:high-dim-training} 展示了高维动作空间下 DQN 和 Double DQN 的训练曲线。由于动作空间从原始的一维离散动作扩展为 34 个组合动作，训练初期的探索难度有所增加。经过 1000 个 episodes 后，Double DQN 相比标准 DQN 表现出更稳定的收益提升趋势。
+\cref{fig:behavior} compares average inventory, order quantity, and unsatisfied demand during testing. All methods draw down the initial inventory quickly and then operate near a lower steady inventory band. PPO and DQN maintain strong demand satisfaction, while Double DQN uses slightly lower average inventory and order quantity at the cost of a lower satisfaction rate. The high-dimensional agents keep higher inventory on average but still do not convert this into higher reward, indicating that the extra action dimensions currently introduce cost and exploration difficulty rather than useful order allocation.
 
 \begin{figure}[t]
 \vskip 0.1in
 \begin{center}
-\includegraphics[width=\columnwidth]{images/high_dim_comparison_training_curve.png}
-\caption{高维订单空间下 DQN 与 Double DQN 的训练收益对比。}
-\label{fig:high-dim-training}
+\includegraphics[width=\columnwidth]{images/current_comparison_behavior.png}
+\caption{Average inventory, order quantity, and unsatisfied demand during testing.}
+\label{fig:behavior}
 \end{center}
 \vskip -0.15in
 \end{figure}
 
-\cref{tab:high-dim-results} 给出了高维实验在 10 个测试 episodes 上的结果。标准 DQN 的平均测试收益为 214.10，需求满足率为 0.819；Double DQN 的平均测试收益提升至 320.55，需求满足率提升至 0.926，同时收益标准差由 98.45 降低至 72.32。这说明在更复杂的高维动作空间中，Double DQN 仍然能够获得更稳定和更高质量的订货策略。
+\subsection{High-Dimensional Results}
+
+\cref{tab:highdim-results} reports the latest high-dimensional runs with the same 2000-episode training budget and learning rate $5\times10^{-4}$. High-Dim DQN outperforms High-Dim Double DQN in mean reward, satisfaction rate, and reward variance. This is different from the earlier 1500-episode exploratory High-Dim Double DQN run, which reached a mean reward of 406.10 with learning rate $10^{-3}$. The discrepancy shows that the high-dimensional setting is sensitive to optimization settings and random stream choices.
 
 \begin{table}[t]
-\caption{高维订单空间下 DQN 与 Double DQN 的测试结果比较}
-\label{tab:high-dim-results}
+\caption{High-dimensional action test performance over 20 test episodes.}
+\label{tab:highdim-results}
 \vskip 0.15in
 \begin{center}
 \begin{small}
 \begin{tabular}{lcc}
 \toprule
-指标 & HD-DQN & HD-Double DQN \\
+Metric & High-Dim DQN & High-Dim Double DQN \\
 \midrule
-平均测试收益 & 214.10 & \textbf{320.55} \\
-收益标准差 & 98.45 & \textbf{72.32} \\
-平均库存 & 19.15 & 22.54 \\
-平均订货量 & 7.19 & 8.38 \\
-需求满足率 & 0.819 & \textbf{0.926} \\
+Mean reward & \textbf{357.75} & 299.50 \\
+Reward std. & \textbf{100.91} & 104.83 \\
+Avg. inventory & 21.73 & \textbf{20.54} \\
+Avg. order & 8.43 & \textbf{8.06} \\
+Satisfied demand & \textbf{9.28} & 8.94 \\
+Demand satisfaction & \textbf{0.917} & 0.904 \\
 \bottomrule
 \end{tabular}
 \end{small}
@@ -288,66 +256,41 @@ Batch size & 64 \\
 \vskip -0.1in
 \end{table}
 
-\begin{figure}[t]
-\vskip 0.1in
+\begin{table}[t]
+\caption{Additional high-dimensional exploratory runs currently present in \texttt{results/}.}
+\label{tab:extra-highdim}
+\vskip 0.15in
 \begin{center}
-\includegraphics[width=\columnwidth]{images/high_dim_comparison_test_scores.png}
-\caption{高维订单空间下 DQN 与 Double DQN 的平均测试收益对比。}
-\label{fig:high-dim-test-score}
+\begin{scriptsize}
+\begin{tabular}{lcccc}
+\toprule
+Algorithm & Run & Train eps. & LR & Mean reward \\
+\midrule
+High-Dim DQN & \texttt{162220} & 1500 & $10^{-3}$ & 351.70 \\
+High-Dim Double DQN & \texttt{163325} & 1500 & $10^{-3}$ & \textbf{406.10} \\
+\bottomrule
+\end{tabular}
+\end{scriptsize}
 \end{center}
-\vskip -0.15in
-\end{figure}
+\vskip -0.1in
+\end{table}
 
-\cref{fig:high-dim-double-detail} 展示了高维 Double DQN 在测试阶段的订货、库存和需求满足情况。相比高维 DQN，Double DQN 采取了略高的平均订货量和库存缓冲，从而显著提高需求满足率。该结果与原始一维动作空间实验中的趋势一致，即 Double DQN 通过降低目标值过估计带来的不稳定性，在供应链订货任务中取得更稳健的策略。
+\section{Discussion}
 
-\begin{figure}[t]
-\vskip 0.1in
-\begin{center}
-\includegraphics[width=\columnwidth]{images/high_dim_double_dqn_test_results.png}
-\caption{高维 Double DQN 在测试阶段的库存、订货量、需求满足和收益表现。}
-\label{fig:high-dim-double-detail}
-\end{center}
-\vskip -0.15in
-\end{figure}
+The main current conclusion is that PPO is the strongest standard-action method in the saved experiments. It achieves the best mean reward, the lowest variance, and a high demand satisfaction rate. Its advantage is not caused by much higher average ordering: its average order quantity is between DQN and Double DQN, suggesting a better balance between inventory protection and holding cost.
 
-\section{分析与讨论}
+Double DQN does not clearly beat DQN in mean reward in the current scalar setting. However, it reduces test-reward variance from 60.96 to 48.61 and uses lower average inventory, so its value is mostly risk reduction and leaner inventory behavior. This is a more conservative conclusion than the previous report, where older results overstated the mean-performance gain of Double DQN.
 
-实验结果表明，在本文设置下，Double DQN 相比标准 DQN 取得了更好的平均收益和需求满足率。一个可能原因是标准 DQN 的最大化目标容易高估部分动作价值，导致学习过程偏向某些并不稳定的订货动作；Double DQN 将动作选择与动作评估分离后，目标值更加保守，从而使策略更新更稳定。
+The high-dimensional formulation is currently not competitive with scalar-action agents. Although it can represent richer order allocation, the composite action space makes exploration harder and increases value-estimation variance. The latest high-dimensional agents preserve demand satisfaction around 0.90--0.92, but their rewards are much lower because higher inventory and unstable orders increase cost. The earlier High-Dim Double DQN run with learning rate $10^{-3}$ suggests there is room for tuning, but the current evidence is not strong enough to claim that the high-dimensional extension improves performance.
 
-从供应链角度看，学习企业需要在库存成本和缺货损失之间权衡。订货过少会导致无法满足下游需求，产生缺货损失；订货过多则会增加库存持有成本。Double DQN 学到的策略平均订货量和库存略高于 DQN，因此在需求满足方面表现更好，并带来了更高收益。这说明在当前参数下，适度提高库存缓冲比过度压低库存更有利。
+\section{Recommendations}
 
-高维订单空间实验进一步表明，扩展动作空间可以增强模型对多渠道订货决策的刻画能力，但也会带来动作组合数量增加和探索难度上升的问题。直接枚举所有高维组合会产生大量过低或过高的无效订货动作，因此本文通过总订货量约束将动作空间控制在合理范围内。实验结果显示，在该复杂设定下，Double DQN 相比 DQN 仍然能够获得更高收益和更高需求满足率，说明其目标值估计方式对复杂动作空间具有更好的适应性。
+Future training should prioritize three changes. First, repeat each algorithm over multiple seeds and report confidence intervals; the current results are single-run comparisons and should not be interpreted as statistically final. Second, keep PPO as the main standard-action baseline and tune it around entropy coefficient, clip range, and reward scaling. Third, redesign the high-dimensional policy to avoid enumerating all composite actions. A factorized policy or autoregressive order allocator would better match the multi-channel structure and reduce exploration difficulty.
 
-本文实验也存在一些局限。首先，训练只使用了固定环境参数和单个主要随机种子，结果仍可能受到随机性的影响。其次，非学习企业采用固定 base-stock 策略，尚未考虑多个企业同时学习时的策略耦合。
+For experiment management, the current Hydra-based layout should be retained. Each run already saves runtime metadata, resolved configuration, logs, model files, scores, and summaries under timestamped \texttt{results/<algorithm>/} directories. The report should continue to state exactly which run directories are used, because the plotting script selects the latest complete run by algorithm name unless explicit result paths are supplied.
 
-\section{复现方式与交付文件}
+\section{Conclusion}
 
-代码采用 \texttt{src/} package layout。环境配置与运行方式如下：
-\begin{verbatim}
-conda create -n beergame python=3.10.16 -y
-conda activate beergame
-pip install -e .
-python -m beergame.policy.experiment
-python -m beergame.policy.high_dim_experiment
-\end{verbatim}
-
-实验运行后会生成以下主要文件：
-\begin{itemize}
-    \item \path{models/baseline_dqn_firm_1_final.pth}
-    \item \path{models/double_dqn_firm_1_final.pth}
-    \item \path{models/high_dim_dqn_firm_1_final.pth}
-    \item \path{models/high_dim_double_dqn_firm_1_final.pth}
-    \item \path{images/comparison_training_curve.png}
-    \item \path{images/comparison_test_scores.png}
-    \item \path{images/baseline_dqn_test_results.png}
-    \item \path{images/double_dqn_test_results.png}
-    \item \path{images/high_dim_comparison_training_curve.png}
-    \item \path{images/high_dim_comparison_test_scores.png}
-    \item \path{images/high_dim_double_dqn_test_results.png}
-\end{itemize}
-
-\section{结论}
-
-本文完成了 Beer Game 环境下的单智能体 DQN baseline 复现，并实现了 Double DQN 作为算法改进。实验结果显示，在相同训练与测试设置下，Double DQN 相比标准 DQN 获得更高的平均测试收益、更低的收益波动和更高的需求满足率。进一步地，本文将一维订货动作扩展为带总量约束的高维订单向量，用于刻画多渠道订货决策。高维实验结果同样显示，Double DQN 在复杂动作空间下优于标准 DQN，平均测试收益由 214.10 提升至 320.55，需求满足率由 0.819 提升至 0.926。后续工作可以从多随机种子实验、多智能体强化学习、不同渠道到货延迟、需求分布变化以及 bullwhip effect 分析等方向继续扩展。
+Using the current saved results, PPO is the best-performing standard-action reinforcement learning policy for the Beer Game inventory-control task, with mean reward 627.90 and standard deviation 39.30. DQN and Double DQN have almost identical mean reward, but Double DQN is more stable. The high-dimensional action agents are not yet competitive: their richer action representation increases difficulty and produces substantially lower rewards in the latest comparable runs. The next experimental step should be multi-seed evaluation and targeted tuning of PPO and high-dimensional action factorization.
 
 \end{document}

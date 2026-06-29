@@ -3,7 +3,7 @@ training:
   algorithm: high_dim_dqn
   result_root: results
   firm_id: 1
-  num_episodes: 1500
+  num_episodes: 2000
   test_episodes: 20
   seed: 42
   seed_offset: 0
@@ -15,7 +15,7 @@ dqn:
   buffer_size: 10000
   batch_size: 64
   gamma: 0.99
-  learning_rate: 0.001
+  learning_rate: 0.0005
   tau: 0.001
   update_every: 4
 

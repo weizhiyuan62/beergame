@@ -4,7 +4,7 @@ training:
   result_root: results
   firm_id: 1
   action_size: 20
-  num_episodes: 1500
+  num_episodes: 2000
   test_episodes: 20
   seed: 42
   seed_offset: 200

@@ -1,0 +1,271 @@
+\documentclass[nohyperref]{article}
+
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{subfigure}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{amsthm}
+\usepackage[UTF8,fontset=fandol]{ctex}
+\usepackage{hyperref}
+\usepackage[capitalize,noabbrev]{cleveref}
+\usepackage{icml2022}
+
+\providecommand{\theHalgorithm}{\arabic{algorithm}}
+\icmltitlerunning{Beer Game 强化学习}
+
+\begin{document}
+
+\twocolumn[
+\icmltitle{基于强化学习的 Beer Game 库存订货控制}
+
+\begin{icmlauthorlist}
+\icmlauthor{课程项目小组}{pku}
+\end{icmlauthorlist}
+
+\icmlaffiliation{pku}{北京大学，多智能体系统课程项目}
+\icmlkeywords{Beer Game, Supply Chain, Deep Reinforcement Learning, DQN, Double DQN, PPO}
+
+\vskip 0.3in
+]
+
+\printAffiliationsAndNotice{}
+
+\begin{abstract}
+本文研究 Beer Game 供应链环境中的单智能体库存订货控制问题。当前代码中，一个企业作为学习智能体，其余企业采用简单的 base-stock 启发式策略。本文基于当前 \texttt{results/} 目录中的实验结果，对 DQN、Double DQN、PPO 以及高维动作空间下的 High-Dim DQN 和 High-Dim Double DQN 进行比较。报告中的主实验均采用每个算法最新的完整运行结果。在标准一维订货动作空间中，PPO 取得最高测试收益，20 个测试 episode 上平均收益为 627.90，标准差为 39.30。DQN 与 Double DQN 的平均收益几乎相同，但 Double DQN 的收益波动更低。高维动作空间明显更难训练：最新 High-Dim DQN 与 High-Dim Double DQN 的平均收益分别为 357.75 和 299.50，虽然需求满足率仍保持在 0.90 以上，但库存和动作搜索成本使整体收益显著低于标准动作算法。当前结果说明，PPO 是现阶段最强的标准动作策略；高维订货建模仍需要进一步调参或重新设计动作分解方式。
+\end{abstract}
+
+\section{引言}
+
+Beer Game 是供应链管理中的经典动态决策问题。多个企业按串行结构组成供应链，下游企业面对外部随机需求，上游企业根据下游订单进行补货。由于订单传递、库存约束、持有成本和缺货惩罚共同作用，局部看似合理的订货行为可能带来库存积压、缺货损失以及供应链波动放大。
+
+本项目最初实现了 DQN baseline。当前实验框架进一步扩展为三个方向：第一，引入 Double DQN，通过分离动作选择和目标值评估来缓解 DQN 的过估计问题；第二，引入 PPO，使用 clipped policy gradient 直接优化随机策略；第三，将一维订货动作扩展为三维订单向量，用于模拟多渠道或多供应商订货分配。
+
+本文根据当前实验输出重新撰写报告，不再沿用旧图和旧命令。重点回答以下问题：
+\begin{itemize}
+    \item 标准动作空间下哪个算法的收益和稳定性最好？
+    \item 当前结果中 Double DQN 是否显著优于 DQN？
+    \item 高维动作空间相比一维订货动作带来了多大训练难度？
+    \item 后续训练和实验管理应该如何调整？
+\end{itemize}
+
+\section{环境与目标}
+
+\subsection{Beer Game 模型}
+
+实验环境包含 $N=3$ 个企业。企业 $0$ 最接近外部市场，企业 $1$ 是所有实验中的学习企业，企业 $2$ 是上游供应企业。每个 episode 最多运行 100 个时间步。外部市场需求服从泊松分布：
+\begin{equation}
+D_t \sim \operatorname{Poisson}(10).
+\end{equation}
+
+在标准动作空间中，学习企业每个时间步选择一个离散订货量：
+\begin{equation}
+a_t \in \{1,2,\ldots,20\}.
+\end{equation}
+局部观测包括该企业的订货量、已满足需求和库存水平。库存更新遵循 Beer Game 中的库存平衡关系：
+\begin{equation}
+I_{t+1}=I_t+q_t-d_t,
+\end{equation}
+其中 $q_t$ 表示环境转移中记录的补货或订货量，$d_t$ 表示实际满足的需求。
+
+\subsection{奖励函数}
+
+学习目标是最大化企业在整个 episode 中的累计利润。即时奖励由销售收入、采购成本、库存持有成本和缺货惩罚构成：
+\begin{equation}
+r_t=p_i d_t-p_{i+1}q_t-hI_t-c\max(0,D_t-d_t).
+\end{equation}
+当前实验使用价格 $[10,9,8]$，库存持有成本 $h=0.5$，缺货惩罚 $c=2.0$，初始库存为 100，每个 episode 最多 100 步。
+
+\subsection{非学习企业策略}
+
+非学习企业采用 base-stock 启发式策略。相比随机策略，该设置可以降低环境噪声，使算法之间的差异更容易解释。Base-stock 策略根据目标库存和当前库存之间的差距确定订货量，并裁剪到可行动作范围内。
+
+\section{算法}
+
+\subsection{DQN}
+
+DQN 使用神经网络近似动作价值函数 $Q(s,a)$，并从 replay buffer 中采样训练。其目标值为：
+\begin{equation}
+y=r+\gamma\max_{a'} Q_{\text{target}}(s',a').
+\end{equation}
+当前 DQN 运行使用 2000 个训练 episode、20 个测试 episode、学习率 $5\times10^{-4}$、折扣因子 $\gamma=0.99$、replay buffer 大小 10000、batch size 64，以及软更新系数 $10^{-3}$。
+
+\subsection{Double DQN}
+
+Double DQN 用在线网络选择下一步动作，用目标网络评估该动作价值：
+\begin{equation}
+a^*=\arg\max_{a'} Q_{\text{online}}(s',a'),
+\end{equation}
+\begin{equation}
+y=r+\gamma Q_{\text{target}}(s',a^*).
+\end{equation}
+当前 Double DQN 与 DQN 使用相同的主要超参数，只是通过 seed offset 区分随机流。
+
+\subsection{PPO}
+
+PPO 使用带裁剪目标的 policy gradient 同时训练随机策略和价值函数。当前 PPO 运行使用学习率 $10^{-4}$、折扣因子 0.99、GAE 参数 0.95、clip range 0.15、entropy coefficient 0.03、4 个 update epochs、minibatch size 64 和 reward scaling 0.01。引入 PPO 的原因是 Beer Game 的订货策略可以直接通过随机策略优化，而不完全依赖 DQN 中可能较噪声的价值估计。
+
+\subsection{高维动作智能体}
+
+高维动作设置将一维订货量替换为三维订单向量。每一维可以理解为一个订货渠道或供应商。每个通道的可选订货水平为 $\{0,5,10,15,20\}$，总订货量被限制在 5 到 20 之间。过滤非法组合后，动作空间包含 34 个离散组合动作。该设计仍然可以使用 DQN 类算法，但动作空间更大，探索和价值估计难度也更高。
+
+\section{实验管理}
+
+当前实验使用 \texttt{cfg/} 下的 Hydra 配置文件管理。每个训练脚本将自身输出保存到 \texttt{results/<algorithm>/} 下按运行时间命名的目录中。每个运行目录包含解析后的 Hydra 配置、日志、模型 checkpoint、训练分数、测试分数、测试轨迹、运行时间信息和 \texttt{summary.json}。绘图脚本读取指定结果目录后，将合并图保存到 \texttt{results/summary/<timestamp>/}。
+
+\begin{table}[t]
+\caption{主实验中使用的最新完整运行。}
+\label{tab:runs}
+\vskip 0.15in
+\begin{center}
+\begin{scriptsize}
+\begin{tabular}{llcc}
+\toprule
+算法 & 运行目录 & 训练轮数 & 用时（秒） \\
+\midrule
+DQN & \texttt{20260629\_161744} & 2000 & 53.57 \\
+Double DQN & \texttt{20260629\_161938} & 2000 & 53.57 \\
+PPO & \texttt{20260629\_161625} & 2000 & 43.98 \\
+High-Dim DQN & \texttt{20260629\_164517} & 2000 & 55.79 \\
+High-Dim Double DQN & \texttt{20260629\_163756} & 2000 & 53.44 \\
+\bottomrule
+\end{tabular}
+\end{scriptsize}
+\end{center}
+\vskip -0.1in
+\end{table}
+
+\section{实验结果}
+
+\subsection{标准动作空间结果}
+
+\cref{tab:standard-results} 汇总了最新标准动作空间运行结果。PPO 获得最高平均测试收益，同时收益标准差最低。DQN 和 Double DQN 的平均收益几乎相同，Double DQN 只高 0.20，但标准差低约 12.35。因此在当前结果中，Double DQN 的主要优势是降低波动，而不是显著提高平均收益。
+
+\begin{table}[t]
+\caption{标准动作空间下 20 个测试 episode 的性能。}
+\label{tab:standard-results}
+\vskip 0.15in
+\begin{center}
+\begin{small}
+\begin{tabular}{lccc}
+\toprule
+指标 & DQN & Double DQN & PPO \\
+\midrule
+平均收益 & 611.68 & 611.88 & \textbf{627.90} \\
+收益标准差 & 60.96 & 48.61 & \textbf{39.30} \\
+平均库存 & 18.04 & \textbf{16.69} & 17.41 \\
+平均订货量 & 8.63 & \textbf{8.20} & 8.45 \\
+满足需求量 & \textbf{9.49} & 9.07 & 9.32 \\
+需求满足率 & \textbf{0.937} & 0.917 & 0.934 \\
+\bottomrule
+\end{tabular}
+\end{small}
+\end{center}
+\vskip -0.1in
+\end{table}
+
+\begin{figure}[t]
+\vskip 0.1in
+\begin{center}
+\includegraphics[width=\columnwidth]{images/current_comparison_test_scores.png}
+\caption{平均测试收益对比。误差线表示 20 个测试 episode 上的一倍标准差。}
+\label{fig:test-score}
+\end{center}
+\vskip -0.15in
+\end{figure}
+
+\subsection{训练过程}
+
+\cref{fig:training} 展示了训练奖励移动平均曲线。PPO 收敛最快，并且没有出现高维价值函数方法中非常大的早期负收益。DQN 和 Double DQN 都能从早期探索造成的低收益中恢复，并收敛到接近的奖励区间。两个高维动作智能体初始收益更低、恢复更慢，这与组合动作空间更大、探索更困难一致。
+
+\begin{figure}[t]
+\vskip 0.1in
+\begin{center}
+\includegraphics[width=\columnwidth]{images/current_comparison_training_curve.png}
+\caption{最新完整运行的训练奖励移动平均曲线。}
+\label{fig:training}
+\end{center}
+\vskip -0.15in
+\end{figure}
+
+\subsection{库存与订货行为}
+
+\cref{fig:behavior} 展示了测试阶段的平均库存、订货量和未满足需求。所有方法都会先快速消耗初始库存，然后进入较低库存水平附近的稳定运行区间。PPO 和 DQN 都保持较高需求满足率；Double DQN 的平均库存和订货量略低，但需求满足率也相应下降。高维动作智能体平均库存更高，却没有转化为更高收益，说明额外动作维度目前主要带来了成本和探索困难，而不是有效的订单分配能力。
+
+\begin{figure}[t]
+\vskip 0.1in
+\begin{center}
+\includegraphics[width=\columnwidth]{images/current_comparison_behavior.png}
+\caption{测试阶段的平均库存、平均订货量和未满足需求。}
+\label{fig:behavior}
+\end{center}
+\vskip -0.15in
+\end{figure}
+
+\subsection{高维动作空间结果}
+
+\cref{tab:highdim-results} 给出了学习率 $5\times10^{-4}$、训练 2000 个 episode 的最新高维动作空间结果。High-Dim DQN 在平均收益、需求满足率和收益方差上都优于 High-Dim Double DQN。这与之前训练 1500 个 episode、学习率 $10^{-3}$ 的探索性 High-Dim Double DQN 结果不同，后者平均收益达到 406.10。该差异说明高维动作设置对优化参数和随机性更敏感。
+
+\begin{table}[t]
+\caption{高维动作空间下 20 个测试 episode 的性能。}
+\label{tab:highdim-results}
+\vskip 0.15in
+\begin{center}
+\begin{small}
+\begin{tabular}{lcc}
+\toprule
+指标 & High-Dim DQN & High-Dim Double DQN \\
+\midrule
+平均收益 & \textbf{357.75} & 299.50 \\
+收益标准差 & \textbf{100.91} & 104.83 \\
+平均库存 & 21.73 & \textbf{20.54} \\
+平均订货量 & 8.43 & \textbf{8.06} \\
+满足需求量 & \textbf{9.28} & 8.94 \\
+需求满足率 & \textbf{0.917} & 0.904 \\
+\bottomrule
+\end{tabular}
+\end{small}
+\end{center}
+\vskip -0.1in
+\end{table}
+
+\begin{table}[t]
+\caption{\texttt{results/} 中仍保留的高维探索性运行。}
+\label{tab:extra-highdim}
+\vskip 0.15in
+\begin{center}
+\begin{scriptsize}
+\begin{tabular}{lcccc}
+\toprule
+算法 & 运行目录 & 训练轮数 & 学习率 & 平均收益 \\
+\midrule
+High-Dim DQN & \texttt{162220} & 1500 & $10^{-3}$ & 351.70 \\
+High-Dim Double DQN & \texttt{163325} & 1500 & $10^{-3}$ & \textbf{406.10} \\
+\bottomrule
+\end{tabular}
+\end{scriptsize}
+\end{center}
+\vskip -0.1in
+\end{table}
+
+\section{讨论}
+
+当前最重要的结论是：PPO 是已有标准动作实验中表现最好的方法。它同时具有最高平均收益、最低收益方差和较高需求满足率。PPO 的优势并不是来自明显更高的平均订货量，因为其平均订货量位于 DQN 和 Double DQN 之间；更合理的解释是它在库存保护和库存持有成本之间取得了更好的平衡。
+
+Double DQN 在当前一维动作空间中没有显著提高 DQN 的平均收益。但它将测试收益标准差从 60.96 降到 48.61，并使用更低平均库存，因此其价值主要体现为风险降低和更精简的库存行为。这比旧报告中“Double DQN 显著优于 DQN”的表述更加符合当前结果。
+
+高维动作建模目前还没有超过标准动作智能体。虽然它可以表达更丰富的订单分配策略，但组合动作空间增大了探索难度，也提高了价值估计方差。最新高维运行的需求满足率仍在 0.90 到 0.92 附近，但收益显著较低，主要原因是库存成本和不稳定订货行为抵消了服务水平收益。早期 High-Dim Double DQN 的较好结果说明该方向仍有调参空间，但现有证据不足以说明高维动作扩展已经带来稳定改进。
+
+\section{后续建议}
+
+后续训练应优先做三件事。第一，对每个算法使用多个随机种子重复实验，并报告置信区间；当前结果仍是单次运行对比，不能作为最终统计结论。第二，将 PPO 作为主要标准动作 baseline，重点调节 entropy coefficient、clip range 和 reward scaling。第三，重新设计高维动作策略，避免直接枚举所有组合动作。更合适的方式可能是使用 factorized policy 或 autoregressive order allocator，以更好匹配多渠道订货结构并降低探索难度。
+
+实验管理方面，当前 Hydra 结构应该保留。每次运行已经能够在 \texttt{results/<algorithm>/} 下保存运行时间、解析后配置、日志、模型、训练分数、测试分数和 summary。报告中应继续明确列出使用了哪些运行目录，因为绘图脚本在使用算法名称时默认选择该算法最新的完整运行；如果需要复现实验图，应直接指定结果路径或记录 target list。
+
+\section{结论}
+
+根据当前保存的实验结果，PPO 是 Beer Game 库存控制任务中表现最好的标准动作强化学习策略，平均测试收益为 627.90，标准差为 39.30。DQN 与 Double DQN 的平均收益几乎相同，但 Double DQN 更稳定。高维动作智能体目前尚不具备竞争力：更丰富的动作表达带来了更高探索难度，导致最新可比运行中的收益显著低于标准动作策略。下一步应进行多随机种子评估，并重点优化 PPO 和高维动作分解策略。
+
+\end{document}
