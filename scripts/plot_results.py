@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-target_list = ["baseline_dqn", "double_dqn", "ppo", "high_dim_dqn", "high_dim_double_dqn"]
+target_list = ["baseline_dqn", "double_dqn", "ppo", "high_dim_dqn", "high_dim_double_dqn", "high_dim_ppo"]
 results_root = Path("results")
 output_dir = results_root / "summary" / datetime.now().strftime("%Y%m%d_%H%M%S")
 

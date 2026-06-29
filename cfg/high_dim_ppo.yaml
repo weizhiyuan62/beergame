@@ -1,0 +1,35 @@
+training:
+  name: high_dim_ppo
+  algorithm: high_dim_ppo
+  result_root: results
+  firm_id: 1
+  num_episodes: 2000
+  test_episodes: 20
+  seed: 42
+  seed_offset: 300
+
+ppo:
+  learning_rate: 0.0001
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.15
+  update_epochs: 4
+  minibatch_size: 64
+  entropy_coef: 0.03
+  value_coef: 0.5
+  max_grad_norm: 0.5
+  reward_scale: 0.01
+
+high_dim:
+  order_dim: 3
+  order_levels: [0, 5, 10, 15, 20]
+  order_cost_multipliers: [1.0, 1.1, 1.25]
+  min_total_order: 5
+  max_total_order: 20
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: ${training.result_root}/${training.name}/${now:%Y%m%d_%H%M%S}
+  output_subdir: .hydra

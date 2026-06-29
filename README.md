@@ -126,18 +126,20 @@ Run the high-dimensional action-space comparison:
 conda activate beergame
 python scripts/train_high_dim_dqn.py
 python scripts/train_high_dim_double_dqn.py
+python scripts/train_high_dim_ppo.py
 ```
 
 This experiment compares:
 
 - `high_dim_dqn`: DQN agent for firm `1` with a vector-valued order action;
-- `high_dim_double_dqn`: Double DQN agent for firm `1` with the same action space.
+- `high_dim_double_dqn`: Double DQN agent for firm `1` with the same action space;
+- `high_dim_ppo`: PPO agent for firm `1` over the same enumerated vector action space.
 
-The order action has three dimensions. Each dimension can choose from `[0, 5, 10, 15, 20]`, and only actions with total order quantity between `5` and `20` are used. The non-learning firms use a base-stock heuristic policy.
-The high-dimensional scripts train for 1500 episodes by default and evaluate on 20 test episodes.
+The order action has three dimensions. Each dimension can choose from `[0, 5, 10, 15, 20]`, and only actions with total order quantity between `5` and `20` are used. PPO treats the enumerated vector actions as a categorical action space, then maps selected action indices back to order vectors before stepping the environment. The non-learning firms use a base-stock heuristic policy.
+The high-dimensional DQN scripts train for 1500 episodes by default, while high-dimensional PPO uses its own config under `cfg/high_dim_ppo.yaml`; all evaluate on 20 test episodes.
 
 To aggregate high-dimensional results, edit `scripts/plot_results.py`:
 
 ```python
-target_list = ["high_dim_dqn", "high_dim_double_dqn"]
+target_list = ["high_dim_dqn", "high_dim_double_dqn", "high_dim_ppo"]
 ```
