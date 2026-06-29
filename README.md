@@ -20,9 +20,13 @@ Policy code is organized as:
 
 ```text
 src/beergame/policy/
-  agents/      # learning algorithms: DQN, Double DQN, PPO, high-dimensional helpers
-  heuristic/   # non-learning baseline policies
-  runner.py    # shared train/test/result-saving workflow used by scripts/
+  dqn.py             # DQN agent and scalar-action train/test helpers
+  double_dqn.py      # Double DQN agent
+  ppo.py             # PPO agent and train/test helpers
+  high_dim.py        # high-dimensional action-space helpers
+  base_stock.py      # base-stock heuristic policy
+  random_policy.py   # random heuristic policy
+  runner.py          # shared train/test/result-saving workflow used by scripts/
 ```
 
 ### DQN Baseline

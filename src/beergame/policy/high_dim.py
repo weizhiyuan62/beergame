@@ -7,14 +7,14 @@ from itertools import product
 import numpy as np
 import torch
 
-from beergame.policy.agents.dqn import (
+from beergame.policy.dqn import (
     DQNAgent,
     plot_test_results,
     plot_training_results,
     test_agent,
 )
-from beergame.policy.agents.double_dqn import DoubleDQNAgent
-from beergame.policy.heuristic import BaseStockPolicy
+from beergame.policy.double_dqn import DoubleDQNAgent
+from beergame.policy.base_stock import BaseStockPolicy
 from beergame.sim.env import Env
 
 
