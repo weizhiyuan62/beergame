@@ -4,7 +4,6 @@ import os
 import random
 from itertools import product
 
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
@@ -296,6 +295,8 @@ def train_and_evaluate(name, agent_class, seed_offset=0, opponent_policies=None)
 
 def plot_comparison(training_scores, summaries):
     """Save comparison plots for high-dimensional order-space experiments."""
+    import matplotlib.pyplot as plt
+
     plt.figure(figsize=(10, 6))
     for name, scores in training_scores.items():
         window = min(100, len(scores))
@@ -343,6 +344,8 @@ def print_summary(summaries):
 
 
 def main():
+    import matplotlib.pyplot as plt
+
     os.makedirs("models", exist_ok=True)
     os.makedirs("figures", exist_ok=True)
     plt.rcParams["axes.unicode_minus"] = False

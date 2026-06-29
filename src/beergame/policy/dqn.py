@@ -5,7 +5,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import matplotlib.pyplot as plt
 
 from collections import deque
 from beergame.sim.env import Env
@@ -424,6 +423,8 @@ def plot_training_results(scores, window_size=100, save_path='figures/training_r
     :param save_path: 图表保存路径
     :param title: 图表标题
     """
+    import matplotlib.pyplot as plt
+
     # 计算移动平均
     def moving_average(data, window_size):
         return [np.mean(data[max(0, i-window_size):i+1]) for i in range(len(data))]
@@ -461,6 +462,8 @@ def plot_test_results(
     :param save_path: 图表保存路径
     :param title_prefix: 子图标题前缀
     """
+    import matplotlib.pyplot as plt
+
     # 计算平均值，用于绘图
     avg_inventory = np.mean(inventory_history, axis=0)
     avg_orders = np.mean(orders_history, axis=0)
@@ -541,4 +544,3 @@ if __name__ == "__main__":
     
     # 绘制测试结果
     plot_test_results(test_scores, inventory_history, orders_history, demand_history, satisfied_demand_history)
-

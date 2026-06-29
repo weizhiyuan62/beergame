@@ -19,6 +19,7 @@ build/
 *.log
 models/
 figures/
+results/
 *.pt
 *.pth
 *.ckpt
