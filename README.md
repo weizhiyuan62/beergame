@@ -20,13 +20,15 @@ Policy code is organized as:
 
 ```text
 src/beergame/policy/
-  dqn.py             # DQN agent and scalar-action train/test helpers
+  dqn.py             # DQN agent
   double_dqn.py      # Double DQN agent
-  ppo.py             # PPO agent and train/test helpers
-  high_dim.py        # high-dimensional action-space helpers
+  ppo.py             # PPO agent
+  high_dim.py        # high-dimensional action-space definition
   base_stock.py      # base-stock heuristic policy
   random_policy.py   # random heuristic policy
-  runner.py          # shared train/test/result-saving workflow used by scripts/
+scripts/
+  train_*.py         # experiment-specific train/test/result-saving workflows
+  plot_results.py    # aggregate plotting from results/
 ```
 
 ### DQN Baseline
