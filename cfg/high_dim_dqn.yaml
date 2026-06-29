@@ -30,5 +30,5 @@ hydra:
   job:
     chdir: false
   run:
-    dir: .
-  output_subdir: null
+    dir: ${training.result_root}/${training.name}/${now:%Y%m%d_%H%M%S}
+  output_subdir: .hydra

@@ -4,6 +4,7 @@ Edit target_list to choose which result folders are included.
 """
 
 from pathlib import Path
+from datetime import datetime
 import json
 import sys
 
@@ -18,11 +19,32 @@ import numpy as np
 
 target_list = ["baseline_dqn", "double_dqn", "ppo"]
 results_root = Path("results")
-output_dir = results_root / "summary" / "_".join(target_list)
+output_dir = results_root / "summary" / datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def resolve_result_dir(name):
+    candidate = Path(name)
+    if (candidate / "summary.json").exists():
+        return candidate
+
+    result_dir = results_root / name
+    if (result_dir / "summary.json").exists():
+        return result_dir
+
+    run_dirs = [
+        path for path in result_dir.iterdir()
+        if path.is_dir() and (path / "summary.json").exists()
+    ] if result_dir.exists() else []
+    if run_dirs:
+        return sorted(run_dirs)[-1]
+
+    raise FileNotFoundError(
+        f"No result run found for {name}. Expected {result_dir}/<run_time>/summary.json"
+    )
 
 
 def load_result(name):
-    result_dir = results_root / name
+    result_dir = resolve_result_dir(name)
     summary_path = result_dir / "summary.json"
     training_path = result_dir / "training_scores.npy"
     test_path = result_dir / "test_scores.npy"
@@ -44,6 +66,7 @@ def load_result(name):
 
     return {
         "name": name,
+        "result_dir": str(result_dir),
         "metadata": metadata,
         "training_scores": np.load(training_path),
         "test_scores": np.load(test_path),
@@ -140,6 +163,9 @@ def main():
     plot_behavior_comparison(results)
     print_summary(results)
     print(f"Saved figures to {output_dir}")
+    print("Used result dirs:")
+    for result in results:
+        print(f"{result['name']}: {result['result_dir']}")
 
 
 if __name__ == "__main__":

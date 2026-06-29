@@ -28,6 +28,7 @@ from train_config import (
     as_plain_config,
     default_config_dict,
     hydra_config_to_dict,
+    result_dir_for_run,
     runtime_finish,
     runtime_start,
 )
@@ -226,7 +227,7 @@ def run_ppo_experiment(
     set_seed(seed)
     env = make_env(env_config)
     opponent_policies = make_opponent_policies()
-    result_dir = Path(result_root) / name
+    result_dir = result_dir_for_run(config, name, result_root)
     checkpoint_dir = result_dir / "checkpoints"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 

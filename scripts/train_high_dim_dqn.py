@@ -26,6 +26,7 @@ from train_config import (
     as_plain_config,
     default_config_dict,
     hydra_config_to_dict,
+    result_dir_for_run,
     runtime_finish,
     runtime_start,
 )
@@ -243,7 +244,7 @@ def run_high_dim_dqn_experiment(
     set_seed(seed)
     env = make_high_dim_env(env_config, high_dim_config)
     opponent_policies = make_high_dim_opponent_policies(high_dim_config)
-    result_dir = Path(result_root) / name
+    result_dir = result_dir_for_run(config, name, result_root)
     checkpoint_dir = result_dir / "checkpoints"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 

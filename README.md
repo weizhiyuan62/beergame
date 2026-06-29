@@ -33,6 +33,17 @@ cfg/
   *.yaml             # experiment configs used by train scripts
 ```
 
+### Hydra Configs
+
+Each training script is managed by Hydra. It loads its matching YAML config by default and supports command-line overrides:
+
+```bash
+python scripts/train_dqn.py training.num_episodes=2000 dqn.learning_rate=0.0005
+python scripts/train_ppo.py ppo.entropy_coef=0.05 training.result_root=results/ppo_entropy
+```
+
+Use `--config-name` if you add another YAML file under `cfg/`.
+
 ### DQN Baseline
 
 Run the original single-agent DQN baseline:
@@ -42,16 +53,8 @@ conda activate beergame
 python scripts/train_dqn.py
 ```
 
-This trains firm `1` by default, while the other firms use base-stock orders. It saves raw training and test results under `results/baseline_dqn/`.
+This trains firm `1` by default, while the other firms use base-stock orders. It saves raw training and test results under `results/baseline_dqn/<run_time>/`.
 The default scalar-action setting trains DQN-style agents for 1000 episodes and evaluates on 20 test episodes.
-Each training script is managed by Hydra. It loads its matching YAML config by default and supports command-line overrides:
-
-```bash
-python scripts/train_dqn.py training.num_episodes=2000 dqn.learning_rate=0.0005
-python scripts/train_ppo.py ppo.entropy_coef=0.05 training.result_root=results/ppo_entropy
-```
-
-Use `--config-name` if you add another YAML file under `cfg/`.
 
 ### Double DQN
 
@@ -62,7 +65,7 @@ conda activate beergame
 python scripts/train_double_dqn.py
 ```
 
-This saves raw training and test results under `results/double_dqn/`.
+This saves raw training and test results under `results/double_dqn/<run_time>/`.
 
 ### PPO Improved-Algorithm Experiment
 
@@ -73,7 +76,7 @@ conda activate beergame
 python scripts/train_ppo.py
 ```
 
-This saves raw training and test results under `results/ppo/`.
+This saves raw training and test results under `results/ppo/<run_time>/`.
 PPO uses a longer default horizon of 1500 training episodes, reward scaling for policy updates, and stronger entropy regularization to reduce premature low-order policies.
 
 ### Aggregate Plotting
@@ -96,14 +99,20 @@ Expected output structure:
 ```text
 results/
   baseline_dqn/
-    model.pth
-    training_scores.npy
-    test_scores.npy
-    test_history.npz
-    summary.json    # metrics, full Hydra config, runtime, and command
+    20260629_153012/
+      .hydra/
+        config.yaml
+        hydra.yaml
+        overrides.yaml
+      train_dqn.log
+      model.pth
+      training_scores.npy
+      test_scores.npy
+      test_history.npz
+      summary.json    # metrics, full Hydra config, runtime, and command
   double_dqn/
   ppo/
-  summary/baseline_dqn_double_dqn_ppo/
+  summary/20260629_154455/
     comparison_training_curve.png
     comparison_test_scores.png
     comparison_behavior.png

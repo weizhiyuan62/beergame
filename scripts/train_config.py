@@ -2,9 +2,11 @@
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 import sys
 import time
 
+from hydra.core.hydra_config import HydraConfig
 from omegaconf import OmegaConf
 
 
@@ -84,10 +86,15 @@ def hydra_config_to_dict(config):
 
 
 def runtime_start():
+    hydra_output_dir = None
+    if HydraConfig.initialized():
+        hydra_output_dir = HydraConfig.get().runtime.output_dir
+
     return {
         "started_at": datetime.now(timezone.utc).isoformat(),
         "_start_perf": time.perf_counter(),
         "command": sys.argv,
+        "hydra_output_dir": hydra_output_dir,
     }
 
 
@@ -99,6 +106,7 @@ def runtime_finish(runtime):
         "finished_at": finished,
         "duration_seconds": duration,
         "command": runtime["command"],
+        "hydra_output_dir": runtime.get("hydra_output_dir"),
     }
 
 
@@ -109,3 +117,12 @@ def as_plain_config(config):
 
 def default_config_dict():
     return asdict(TrainConfig())
+
+
+def result_dir_for_run(config, name, result_root):
+    """Use Hydra's run directory when available; otherwise create a timestamped result dir."""
+    if HydraConfig.initialized():
+        return Path(HydraConfig.get().runtime.output_dir)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return Path(result_root) / name / timestamp
