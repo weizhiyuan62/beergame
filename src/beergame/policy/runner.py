@@ -7,10 +7,10 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from beergame.policy.dqn import DQNAgent, test_agent, train_dqn
-from beergame.policy.double_dqn import DoubleDQNAgent
+from beergame.policy.agents.dqn import DQNAgent, test_agent, train_dqn
+from beergame.policy.agents.double_dqn import DoubleDQNAgent
 from beergame.policy.heuristic import BaseStockPolicy
-from beergame.policy.high_dim_experiment import (
+from beergame.policy.agents.high_dim import (
     ACTION_SIZE as HIGH_DIM_ACTION_SIZE,
     ENV_CONFIG as HIGH_DIM_ENV_CONFIG,
     FIRM_ID as HIGH_DIM_FIRM_ID,
@@ -23,7 +23,7 @@ from beergame.policy.high_dim_experiment import (
     test_high_dim_agent,
     train_high_dim_dqn,
 )
-from beergame.policy.ppo import PPOAgent, test_ppo_agent, train_ppo
+from beergame.policy.agents.ppo import PPOAgent, test_ppo_agent, train_ppo
 from beergame.sim.env import Env
 
 

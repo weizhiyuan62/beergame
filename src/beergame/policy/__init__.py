@@ -1,5 +1,5 @@
 """Policy implementations for beer game agents."""
 
-from beergame.policy.ppo import PPOAgent
+from beergame.policy.agents import DQNAgent, DoubleDQNAgent, PPOAgent
 
-__all__ = ["PPOAgent"]
+__all__ = ["DQNAgent", "DoubleDQNAgent", "PPOAgent"]

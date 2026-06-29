@@ -16,6 +16,15 @@ pip install -e .
 
 All experiment outputs are written under `results/`, which is ignored by git.
 
+Policy code is organized as:
+
+```text
+src/beergame/policy/
+  agents/      # learning algorithms: DQN, Double DQN, PPO, high-dimensional helpers
+  heuristic/   # non-learning baseline policies
+  runner.py    # shared train/test/result-saving workflow used by scripts/
+```
+
 ### DQN Baseline
 
 Run the original single-agent DQN baseline:

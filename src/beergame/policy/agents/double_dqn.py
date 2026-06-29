@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from beergame.policy.dqn import DQNAgent
+from beergame.policy.agents.dqn import DQNAgent
 
 
 class DoubleDQNAgent(DQNAgent):
