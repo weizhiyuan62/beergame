@@ -56,6 +56,33 @@ figures/comparison_test_scores.png
 
 `models/` and `figures/` are ignored by git, so include them manually in the final assignment package if required.
 
+### PPO Improved-Algorithm Experiment
+
+Run the improved-algorithm comparison with PPO added:
+
+```bash
+conda activate beergame
+python -m beergame.policy.ppo_experiment
+```
+
+This script trains and tests:
+
+- `baseline_dqn`: standard DQN agent for firm `1`;
+- `double_dqn`: Double DQN agent for firm `1`;
+- `ppo`: PPO actor-critic agent for firm `1`.
+
+The non-learning firms use the same base-stock heuristic policy, so the three algorithms are evaluated under the same environment and opponent setup.
+
+Expected additional outputs:
+
+```text
+models/ppo_firm_1_final.pth
+figures/ppo_training_rewards.png
+figures/ppo_test_results.png
+figures/ppo_comparison_training_curve.png
+figures/ppo_comparison_test_scores.png
+```
+
 ### High-Dimensional Order-Space Experiment
 
 Run the high-dimensional action-space comparison:
