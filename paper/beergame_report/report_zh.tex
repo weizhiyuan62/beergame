@@ -11,7 +11,25 @@
 \usepackage[UTF8,fontset=fandol]{ctex}
 \usepackage{hyperref}
 \usepackage[capitalize,noabbrev]{cleveref}
-\usepackage{icml2022}
+\usepackage[accepted]{icml2022}
+
+\makeatletter
+\renewcommand{\Notice@String}{}
+\renewcommand{\printAffiliationsAndNotice}[1]{%
+\stepcounter{@affiliationcounter}%
+{\let\thefootnote\relax\footnotetext{\hspace*{-\footnotesep}\ifdefined\isaccepted #1\fi%
+\forloop{@affilnum}{1}{\value{@affilnum} < \value{@affiliationcounter}}{
+\textsuperscript{\arabic{@affilnum}}\ifcsname @affilname\the@affilnum\endcsname%
+\csname @affilname\the@affilnum\endcsname%
+\else
+{\bf AUTHORERR: Missing \textbackslash{}icmlaffiliation.}
+\fi
+}.
+\ \\
+}%
+}%
+}
+\makeatother
 
 \providecommand{\theHalgorithm}{\arabic{algorithm}}
 \icmltitlerunning{Beer Game RL}
@@ -22,10 +40,12 @@
 \icmltitle{基于强化学习的 Beer Game 库存订货控制}
 
 \begin{icmlauthorlist}
-\icmlauthor{课程项目小组}{pku}
+\icmlauthor{魏知原}{pku}
+\icmlauthor{孙涌畅}{pku}
+\icmlauthor{首雨欣}{pku}
 \end{icmlauthorlist}
 
-\icmlaffiliation{pku}{北京大学，多智能体系统课程项目}
+\icmlaffiliation{pku}{北京大学信息科学技术学院，多智能体系统课程项目}
 \icmlkeywords{Beer Game, Supply Chain, Deep Reinforcement Learning, DQN, PPO}
 
 \vskip 0.3in
@@ -35,56 +55,61 @@
 \chead{\small\bf Beer Game RL}
 
 \begin{abstract}
-本文研究 Beer Game 供应链环境中的单智能体库存订货控制问题。项目实现并比较了标准一维订货动作下的 DQN、Double DQN、PPO，以及三维订单向量动作空间下的 High-Dim DQN、High-Dim Double DQN 和 High-Dim PPO。完整单次实验显示，标准动作 PPO 取得最高测试收益 627.90，同时需求满足率达到 0.934；高维动作实验中，High-Dim PPO 取得最高测试收益 406.63，明显优于 High-Dim DQN 和 High-Dim Double DQN。为避免单次运行和测试随机流带来的偶然性，我们进一步补充了 high-dim 控制实验，在相同训练 seed 列表和相同评估随机流下重复 3 组 seed。控制实验中，High-Dim PPO 的跨 seed 平均测试收益为 $407.18\pm21.33$，高于 High-Dim DQN 的 $339.91\pm18.37$ 和 High-Dim Double DQN 的 $306.04\pm46.72$；其中最佳 High-Dim PPO 运行达到 424.95。综合完整结果、稳定性和可解释性，本文最终选择 High-Dim PPO 作为高维订单空间的主要方法。
+本报告主要做的是 Beer Game 环境下的库存订货实验。我们把其中一个企业作为学习对象，尝试用几种强化学习算法来决定每一步应该订多少货。实验中先比较了一维订货动作下的 DQN、Double DQN 和 PPO，之后又把动作扩展成三维订单向量，比较 High-Dim DQN、High-Dim Double DQN 和 High-Dim PPO。单次主实验中，标准动作 PPO 的测试收益最高，为 627.90，需求满足率为 0.934；在高维动作空间中，High-Dim PPO 的测试收益为 406.63，也比另外两个高维 DQN 方法更好。由于一次实验可能受到随机性的影响，我们又对高维动作实验补充了 3 组 seed 的控制实验。在这个设置下，High-Dim PPO 的平均测试收益为 $407.18\pm21.33$，高于 High-Dim DQN 的 $339.91\pm18.37$ 和 High-Dim Double DQN 的 $306.04\pm46.72$。从这些结果看，PPO 在本项目的环境里表现相对更稳定，所以后面主要把 High-Dim PPO 作为高维订单实验的代表方法。
 \end{abstract}
 
 \section{引言}
 
-Beer Game 是供应链管理中的经典动态决策问题。多个企业按串行结构组成供应链，下游企业面对随机市场需求，上游企业根据下游订单进行补货。企业的订货决策会影响库存持有成本、缺货惩罚和采购成本，短期看似合理的订货行为可能导致长期利润下降或库存波动放大。
+Beer Game 是供应链管理课程中经常出现的一个例子。它的大致过程是：几个企业排成一条供应链，下游企业面对市场需求，上游企业根据下游企业的订单来补货。每个企业都要决定自己订多少货。如果订得太少，可能会缺货；如果订得太多，又会带来库存成本。因此这个问题看起来简单，但实际做决策时并不容易。
 
-课程代码给出了基础 Beer Game 环境和随机策略接口。本项目将企业 $1$ 作为学习智能体，其余企业采用 base-stock 启发式策略，从而把问题化为单智能体强化学习。我们从 DQN baseline 出发，加入 Double DQN 和 PPO，并进一步把一维订货量扩展为三维订单向量，用于研究更复杂的高维动作空间。
+课程提供了一个基础的 Beer Game 环境，也给出了随机策略接口。本项目中，我们选择企业 $1$ 作为需要训练的智能体，其他企业用比较简单的 base-stock 策略。这样可以先把问题简化成单智能体强化学习问题。我们从 DQN baseline 做起，然后加入 Double DQN 和 PPO。除此之外，我们还把原来的一维订货量扩展成三维订单向量，想看看动作空间变复杂以后，不同算法的效果会有什么变化。
 
-本文重新整理当前完整实验，而不是只报告局部结果。主要问题包括：标准动作下哪个算法最好；高维动作是否显著增加学习难度；在 high-dim 场景下，PPO 是否比 DQN 类方法更适合；最终应选择哪组实验写入报告。
+本报告把目前已经完成的实验结果放在一起比较。我们主要关心三个问题：第一，在普通的一维动作空间里，哪个算法效果更好；第二，把动作改成三维向量以后，学习难度是不是会变大；第三，在高维动作空间中，PPO 是否比 DQN 类方法更适合这个任务。
 
 \section{环境与任务}
 
-实验环境包含 $N=3$ 个企业。企业 $0$ 接近外部市场，企业 $1$ 是学习企业，企业 $2$ 是上游企业。每个 episode 长度为 100 步，外部需求服从
+实验环境中一共有 $N=3$ 个企业。企业 $0$ 直接面对外部市场需求，企业 $1$ 是本项目训练的学习企业，企业 $2$ 是上游企业。每个 episode 长度为 100 步。外部需求服从泊松分布：
 \begin{equation}
 D_t \sim \operatorname{Poisson}(10).
 \end{equation}
-企业局部观测由自身订单量、已满足需求和库存组成：
+
+每个企业能看到的状态比较简单，主要包括订单量、已经满足的需求量和当前库存：
 \begin{equation}
 s_{i,t}=[q_{i,t}, d_{i,t}, I_{i,t}].
 \end{equation}
-库存更新为
+库存的变化按照下面的公式计算：
 \begin{equation}
 I_{i,t+1}=I_{i,t}+q_{i,t}-d_{i,t}.
 \end{equation}
-即时奖励由销售收入、采购成本、库存持有成本和缺货惩罚构成：
+也就是说，当前库存加上订货量，再减去满足的需求量，就是下一步库存。
+
+奖励函数由销售收入、采购成本、库存成本和缺货惩罚组成：
 \begin{equation}
 r_{i,t}=p_i d_{i,t}-p_{i+1}q_{i,t}-hI_{i,t}-c\max(0,D_{i,t}-d_{i,t}).
 \end{equation}
-实验中价格为 $[10,9,8]$，库存持有成本 $h=0.5$，缺货惩罚 $c=2.0$，初始库存为 100。
+实验中价格设置为 $[10,9,8]$，库存持有成本 $h=0.5$，缺货惩罚 $c=2.0$，初始库存为 100。这个奖励函数的意思是，企业既要多卖货，也要控制订货和库存成本。
 
 \section{算法与动作空间}
 
 \subsection{标准动作算法}
 
-标准动作空间中，学习企业每步选择 $a_t\in\{1,\ldots,20\}$。DQN 使用神经网络近似 $Q(s,a)$，并通过 replay buffer 和 target network 训练。Double DQN 用在线网络选择下一步动作，用目标网络评估该动作价值，从而缓解 DQN 的过估计问题。PPO 使用 actor-critic 网络、GAE 和 clipped policy objective 直接优化随机策略，当前配置使用学习率 $10^{-4}$、clip range 0.15、entropy coefficient 0.03 和 reward scaling 0.01。
+在标准动作空间中，学习企业每一步只需要选择一个订货量，即 $a_t\in\{1,\ldots,20\}$。DQN 的做法是用神经网络估计每个动作的 Q 值，然后选择看起来收益比较高的动作。Double DQN 和 DQN 比较接近，只是在计算目标 Q 值时把动作选择和动作评估分开，希望减少 DQN 中可能出现的过估计问题。PPO 的思路不太一样，它直接学习一个随机策略，也就是给每个动作一个概率，再根据采样到的动作进行更新。本项目中 PPO 使用 actor-critic 网络、GAE 和 clipped objective，学习率为 $10^{-4}$，clip range 为 0.15，entropy coefficient 为 0.03，reward scaling 为 0.01。
 
 \subsection{高维动作算法}
 
-高维动作空间把一维订货量扩展为三维订单向量。每个通道可选 $\{0,5,10,15,20\}$，总订货量限制在 5 到 20 之间。过滤非法组合后共有 34 个离散向量动作。环境使用通道成本系数 $[1.0,1.1,1.25]$ 计算采购成本。High-Dim DQN 和 High-Dim Double DQN 对 34 个组合动作学习 Q 值；High-Dim PPO 则把组合动作作为 categorical policy 的类别，采样后映射回订单向量。
+为了让订货动作稍微复杂一些，我们把一维订货量改成三维订单向量。每个通道可以选择 $\{0,5,10,15,20\}$ 中的一个值，同时要求三个通道的总订货量在 5 到 20 之间。去掉不满足条件的组合之后，一共有 34 个合法动作。环境中还给三个通道设置了不同的成本系数 $[1.0,1.1,1.25]$，所以智能体不仅要决定订多少，还要决定从哪个通道订。
 
-这种枚举式 high-dim 设计便于与 DQN 对齐，但也带来明显困难：相近的订单向量被当作互不相关的类别，算法没有显式利用“总订货量相近”或“通道替换相近”等结构信息。因此 high-dim 实验既是动作空间扩展，也是对探索和策略优化能力的压力测试。
+在实现上，High-Dim DQN 和 High-Dim Double DQN 仍然是对每个离散动作学习 Q 值，只不过动作从原来 20 个标量变成了 34 个向量组合。High-Dim PPO 则把这 34 个组合作为分类策略的类别，先采样一个类别，再把它转换回具体的三维订单向量。
+
+这种做法实现起来比较直接，也方便和 DQN 对齐。不过它也有明显缺点：比如 $(5,5,0)$ 和 $(5,0,5)$ 其实很相似，但在模型看来只是两个普通的类别，没有直接体现出它们之间的关系。所以高维动作实验的难度会更大一些，算法需要在更多组合动作中找到合适的订货方式。
 
 \section{实验设计}
 
-所有实验使用 Hydra 配置，输出保存到 \path{results/<algorithm>/<timestamp>/}，包含模型、训练分数、测试分数、测试轨迹和 \path{summary.json}。完整单次主结果采用当前仓库中最新可用运行：标准 DQN、Double DQN、PPO 以及 high-dim DQN、high-dim Double DQN、high-dim PPO 均训练 2000 个 episode，并测试 20 个 episode。
+所有实验使用 Hydra 配置，输出保存在 \path{results/<algorithm>/<timestamp>/} 下，包括模型、训练分数、测试分数、测试轨迹和 \path{summary.json}。单次主实验使用当前仓库中最新可用的运行结果。标准 DQN、Double DQN、PPO，以及高维 DQN、高维 Double DQN、高维 PPO 都训练 2000 个 episode，并测试 20 个 episode。
 
-单次运行仍然存在随机性问题。不同算法的训练 seed offset 不同，且训练阶段消耗随机数数量不同，会导致测试需求序列不完全一致。因此我们补充 high-dim 控制实验：对 High-Dim DQN、High-Dim Double DQN 和 High-Dim PPO 使用相同 seed offset $\{0,100,200\}$，每组训练 2000 个 episode，并在测试前重置评估随机流。这样同一 seed 下的不同算法面对相同测试需求序列，比较更干净。
+不过，只看一次运行可能不太稳。不同算法使用的 seed offset 不完全一样，而且训练过程中消耗随机数的方式也不同，所以测试时遇到的需求序列可能不完全一致。为了让高维动作实验的比较更公平，我们又做了一个控制实验：对 High-Dim DQN、High-Dim Double DQN 和 High-Dim PPO 使用相同的 seed offset $\{0,100,200\}$，每组训练 2000 个 episode，并在测试前重置评估随机流。这样同一个 seed 下，不同算法面对的是相同的测试需求序列。
 
-\section{完整单次实验结果}
+\section{单次主实验结果}
 
 \begin{table}[t]
 \caption{标准一维动作空间下 20 个测试 episode 的结果。}
@@ -130,15 +155,15 @@ r_{i,t}=p_i d_{i,t}-p_{i+1}q_{i,t}-hI_{i,t}-c\max(0,D_{i,t}-d_{i,t}).
 \vskip -0.1in
 \end{table}
 
-\cref{tab:standard} 显示，在标准动作空间中，PPO 的平均测试收益最高，为 627.90，同时收益标准差最低，为 39.30。DQN 的需求满足率略高，但其收益低于 PPO，说明更高服务水平并不一定对应更高利润，因为库存和采购成本也会进入奖励函数。Double DQN 相比 DQN 降低了方差和库存，但平均收益几乎持平。
+从 \cref{tab:standard} 可以看到，在标准动作空间里，三个算法的平均收益其实差距不算特别大，但 PPO 最高，为 627.90，而且收益标准差最低。DQN 的需求满足率最高，达到 0.937，不过它的平均收益没有 PPO 高。这说明在这个环境里，并不是满足越多需求就一定收益越高，因为多订货也会带来采购成本和库存成本。Double DQN 的结果和 DQN 很接近，平均收益只略高一点，但方差更低。
 
-\cref{tab:highdim-single} 显示，在高维订单空间中，High-Dim PPO 是单次完整实验中表现最好的方法，平均收益 406.63，方差也最低。相比之下，High-Dim DQN 平均收益为 357.75，High-Dim Double DQN 为 299.50。该结果说明，在当前枚举式向量动作空间中，直接优化随机策略的 PPO 比基于 Q 值的 off-policy 方法更稳。
+\cref{tab:highdim-single} 是高维动作空间的结果。可以看出，高维动作下所有方法的收益都比标准动作低，说明三维订单向量确实让问题变难了。在三种高维方法中，High-Dim PPO 的平均收益最高，为 406.63，而且标准差最小。High-Dim DQN 的收益为 357.75，High-Dim Double DQN 只有 299.50。从这个结果看，PPO 在高维动作空间里表现得更稳定一些。
 
 \begin{figure}[t]
 \vskip 0.1in
 \begin{center}
 \includegraphics[width=\columnwidth]{images/summary_205932_comparison_test_scores.png}
-\caption{完整单次实验的测试收益对比。图中包含标准动作和 high-dim 动作下的六个算法。}
+\caption{单次主实验的测试收益对比。}
 \label{fig:single-test}
 \end{center}
 \vskip -0.15in
@@ -148,18 +173,18 @@ r_{i,t}=p_i d_{i,t}-p_{i+1}q_{i,t}-hI_{i,t}-c\max(0,D_{i,t}-d_{i,t}).
 \vskip 0.1in
 \begin{center}
 \includegraphics[width=\columnwidth]{images/summary_205932_comparison_training_curve.png}
-\caption{完整单次实验的训练收益移动平均曲线。High-dim 方法早期负收益更大，说明组合动作空间增加了探索难度。}
+\caption{单次主实验的训练收益移动平均曲线。}
 \label{fig:single-training}
 \end{center}
 \vskip -0.15in
 \end{figure}
 
-\cref{fig:single-test} 从图形上汇总了六个算法的测试收益，标准动作 PPO 最高，高维动作中 High-Dim PPO 最高。\cref{fig:single-training} 展示了训练过程，标准动作方法整体更快进入稳定收益区间，而 high-dim 方法早期探索成本更高。
+\cref{fig:single-test} 中也能看到类似结论：标准动作空间下 PPO 的测试收益最高，高维动作空间中也是 High-Dim PPO 更好。\cref{fig:single-training} 展示了训练过程。相比标准动作方法，高维动作方法在训练初期的收益更低，波动也更明显，这和动作空间变复杂是符合预期的。
 
 \section{控制实验结果}
 
 \begin{table}[H]
-\caption{High-dim 控制实验。均值和标准差按 3 个训练 seed 统计；每个 seed 的测试均值来自 20 个 episode。}
+\caption{高维动作控制实验。均值和标准差按 3 个训练 seed 统计；每个 seed 的测试均值来自 20 个 episode。}
 \label{tab:controlled}
 \vskip 0.15in
 \begin{center}
@@ -182,24 +207,24 @@ HD Double DQN & 306.04$\pm$46.72 & 0.938 & 23.07 & 8.35 \\
 \vskip 0.02in
 \begin{center}
 \includegraphics[width=0.88\columnwidth]{images/controlled_high_dim_main_rewards.png}
-\caption{High-dim 3-seed 控制实验平均测试收益。误差线表示不同训练 seed 之间的标准差。}
+\caption{高维动作 3-seed 控制实验的平均测试收益。}
 \label{fig:controlled}
 \end{center}
 \vskip -0.12in
 \end{figure}
 
-\cref{tab:controlled} 和 \cref{fig:controlled} 进一步验证了单次实验中的结论。High-Dim PPO 在 3 个训练 seed 上的平均收益为 $407.18\pm21.33$，高于 High-Dim DQN 和 High-Dim Double DQN。High-Dim Double DQN 的跨 seed 标准差最大，说明它在当前 high-dim 设置下对随机初始化和探索路径更敏感。控制实验中最好的 High-Dim PPO 单次运行来自 seed offset 200，测试均值达到 424.95，需求满足率为 0.949。本文最终采用这组 High-Dim PPO 作为最优 high-dim 策略结果。
+为了进一步确认高维动作下的结果，我们做了 3 个 seed 的控制实验。\cref{tab:controlled} 和 \cref{fig:controlled} 中，High-Dim PPO 的平均收益为 $407.18\pm21.33$，仍然高于 High-Dim DQN 和 High-Dim Double DQN。High-Dim DQN 的平均收益为 $339.91\pm18.37$，High-Dim Double DQN 为 $306.04\pm46.72$。可以看到，Double DQN 在这里并没有带来提升，反而波动更大。表现最好的一次 High-Dim PPO 来自 seed offset 200，测试均值达到 424.95，需求满足率为 0.949。因此我们把这组结果作为高维动作实验中比较有代表性的结果。
 
 \section{讨论}
 
-从完整实验看，标准一维动作策略仍然比当前 high-dim 策略收益更高。原因不是高维订单一定无用，而是当前 high-dim 实现采用枚举式 categorical action，把 34 个向量组合视为互不相关的动作。这会增加探索难度，也使价值估计或策略优化更容易陷入局部策略。
+从实验结果看，标准一维动作策略的收益仍然比高维动作策略更高。这个结果一开始有点出乎预期，因为高维动作看起来表达能力更强，可以选择不同通道的订货组合。但后来分析后发现，当前实现只是把所有合法向量枚举成 34 个类别，模型并不知道这些动作之间有什么联系。因此动作变多以后，学习难度也变大了。
 
-在 high-dim 任务内部，PPO 是更合理的选择。第一，单次完整实验中 High-Dim PPO 同时取得最高平均收益和最低收益方差。第二，控制实验中 PPO 在 3 个 seed 上稳定领先。第三，PPO 的随机策略和熵正则有助于持续探索不同订单分配组合，而 DQN 类方法在组合动作空间中更容易受到 Q 值估计噪声影响。
+在高维动作实验中，PPO 的表现相对最好。一个可能原因是 PPO 本身是随机策略，并且使用了熵正则，所以训练过程中会持续探索不同的订单组合。而 DQN 类方法主要依赖 Q 值估计，如果动作数量变多，Q 值估计的噪声可能会影响动作选择。尤其是 High-Dim Double DQN，在本实验中没有比 High-Dim DQN 更好，说明 Double DQN 的改进在这个设置下不一定总是有效。
 
-标准动作实验也给出一个启发：收益最大化并不等同于单纯提高需求满足率。DQN 的标准动作满足率略高，但 PPO 的收益更高且方差更小，说明库存成本、采购成本和缺货惩罚之间存在平衡。未来若继续改进 high-dim 策略，应考虑 factorized policy 或 autoregressive policy，让策略按通道生成订单，而不是把完整订单向量枚举为无结构类别。
+标准动作实验还说明，收益和需求满足率不是完全一致的指标。比如 DQN 的需求满足率略高于 PPO，但平均收益反而低一些。这说明库存控制不能只看是否满足需求，还要同时考虑采购成本和库存成本。如果后续继续改进高维动作方法，可能需要让模型更好地利用订单通道之间的结构，比如让策略分别决定每个通道的订货量，而不是直接在 34 个完整组合中选择。
 
 \section{结论}
 
-本文完整比较了 Beer Game 中的标准动作和高维动作强化学习方法。标准动作空间下，PPO 取得最高平均测试收益 627.90，并具有最低收益方差。高维订单空间下，High-Dim PPO 在单次完整实验中取得 406.63 的测试收益，在 3-seed 控制实验中取得 $407.18\pm21.33$，最佳控制运行达到 424.95，均优于 High-Dim DQN 和 High-Dim Double DQN。因此，本文最终选择 High-Dim PPO 作为高维订单空间的最佳实验结果和主要报告方法。
+本项目比较了 Beer Game 环境下几种强化学习订货策略。实验结果显示，在标准一维动作空间中，PPO 的平均收益最高，收益波动也最小。在三维订单向量的高维动作空间中，High-Dim PPO 也比 High-Dim DQN 和 High-Dim Double DQN 表现更好。虽然高维动作空间理论上提供了更灵活的订货方式，但当前简单枚举动作的实现会增加学习难度，因此总体收益低于标准动作实验。综合来看，PPO 是本项目中比较合适的方法，后续如果继续做，可以重点改进高维动作空间的建模方式。
 
 \end{document}
